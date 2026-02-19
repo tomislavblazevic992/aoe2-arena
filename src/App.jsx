@@ -7,9 +7,9 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const ADMIN_USERNAME = "admin";
 const INITIAL_COINS = 1000;
+const DAILY_BONUS = 50;
 
 function calcOdds(teamA, teamB) {
-  // Combined score: experience * 0.6 + ranked_points/100 * 0.4
   const score = (u) => (u.experience || 0) * 0.6 + ((u.ranked_points || 0) / 100) * 0.4;
   const avgA = Math.max(0.5, teamA.reduce((s, u) => s + score(u), 0) / teamA.length);
   const avgB = Math.max(0.5, teamB.reduce((s, u) => s + score(u), 0) / teamB.length);
@@ -20,6 +20,14 @@ function calcOdds(teamA, teamB) {
   };
 }
 
+function timeAgo(ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return "upravo";
+  if (s < 3600) return `${Math.floor(s / 60)}min`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
 const css = `
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Pro:ital,wght@0,400;0,500;0,600;1,400&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -28,6 +36,7 @@ const css = `
   --panel:#251f12;--border:#4a3f22;--border2:#6b5a30;
   --gold:#c8922a;--gold2:#e8b84b;--gold3:#ffd875;
   --red:#8b1c1c;--red2:#b52828;--green:#2d6b2d;--green2:#3d8b3d;--green3:#52b352;
+  --blue:#1a3a5c;--blue2:#6bb8ff;
   --text:#f0e6c8;--text2:#c8b480;--text3:#7a6840;--radius:4px;
 }
 html,body{height:100%;}
@@ -35,16 +44,21 @@ body{background:var(--stone);background-image:radial-gradient(ellipse at 20% 50%
 #root{min-height:100vh;display:flex;flex-direction:column;}
 .app{min-height:100vh;display:flex;flex-direction:column;}
 ::-webkit-scrollbar{width:8px;}::-webkit-scrollbar-track{background:var(--stone2);}::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+
+/* NAV */
 .nav{background:linear-gradient(180deg,#0d0b06 0%,var(--stone2) 100%);border-bottom:2px solid var(--border);position:sticky;top:0;z-index:100;box-shadow:0 4px 20px rgba(0,0,0,0.6);}
 .nav::after{content:'';display:block;height:1px;background:linear-gradient(90deg,transparent,var(--gold),transparent);}
-.nav-inner{max-width:100%;margin:0 auto;display:flex;align-items:center;height:56px;padding:0 24px;gap:0;}
+.nav-inner{max-width:100%;margin:0 auto;display:flex;align-items:center;height:56px;padding:0 24px;}
 .nav-brand{display:flex;align-items:center;gap:10px;flex-shrink:0;font-family:'Cinzel',serif;font-size:1.2rem;font-weight:900;letter-spacing:3px;color:var(--gold2);text-shadow:0 0 20px rgba(200,146,42,0.4);padding-right:24px;border-right:1px solid var(--border);}
 .nav-tabs{display:flex;gap:0;flex:1;padding:0 16px;}
-.nav-tab{background:none;border:none;cursor:pointer;font-family:'Cinzel',serif;font-size:0.75rem;font-weight:600;color:var(--text2);padding:8px 14px;letter-spacing:1px;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;white-space:nowrap;text-transform:uppercase;}
+.nav-tab{background:none;border:none;cursor:pointer;font-family:'Cinzel',serif;font-size:0.72rem;font-weight:600;color:var(--text2);padding:8px 12px;letter-spacing:1px;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;white-space:nowrap;text-transform:uppercase;}
 .nav-tab:hover{color:var(--gold2);}.nav-tab.active{color:var(--gold2);border-bottom-color:var(--gold);}
 .nav-right{display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0;}
 .coins-badge{display:flex;align-items:center;gap:6px;background:rgba(200,146,42,0.1);border:1px solid var(--border);padding:5px 12px;border-radius:2px;font-family:'Cinzel',serif;font-size:0.82rem;font-weight:700;color:var(--gold2);letter-spacing:1px;}
 .admin-badge{background:linear-gradient(135deg,var(--red),var(--red2));color:#fff;font-family:'Cinzel',serif;font-size:0.6rem;font-weight:700;padding:3px 8px;border-radius:2px;letter-spacing:2px;}
+.notif-btn{position:relative;background:none;border:1px solid var(--border);color:var(--text2);width:34px;height:34px;border-radius:2px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1rem;transition:all 0.15s;}
+.notif-btn:hover{color:var(--gold2);border-color:var(--border2);}
+.notif-dot{position:absolute;top:4px;right:4px;width:8px;height:8px;background:var(--red2);border-radius:50%;border:1px solid var(--stone2);}
 .hamburger{display:none;background:none;border:1px solid var(--border);cursor:pointer;color:var(--text2);padding:6px;border-radius:2px;}
 .hamburger:hover{color:var(--gold);border-color:var(--border2);}
 .mobile-menu{display:none;flex-direction:column;background:var(--stone2);border-bottom:1px solid var(--border);padding:8px 16px 12px;}
@@ -52,10 +66,12 @@ body{background:var(--stone);background-image:radial-gradient(ellipse at 20% 50%
 .mobile-tab{background:none;border:none;cursor:pointer;font-family:'Cinzel',serif;font-size:0.85rem;font-weight:600;color:var(--text2);padding:10px 12px;text-align:left;letter-spacing:1px;border-bottom:1px solid var(--border);transition:color 0.15s;}
 .mobile-tab:last-of-type{border-bottom:none;}.mobile-tab:hover,.mobile-tab.active{color:var(--gold2);}
 .page{flex:1;width:100%;padding:24px 28px;}
+
+/* BUTTONS */
 .btn{display:inline-flex;align-items:center;gap:6px;font-family:'Cinzel',serif;font-weight:700;letter-spacing:1px;border:none;cursor:pointer;border-radius:2px;transition:all 0.15s;white-space:nowrap;font-size:0.75rem;padding:8px 16px;text-transform:uppercase;}
 .btn:disabled{opacity:0.4;cursor:not-allowed;}
 .btn-primary{background:linear-gradient(180deg,var(--gold2) 0%,var(--gold) 100%);color:#1a1208;border:1px solid var(--gold3);box-shadow:0 2px 8px rgba(200,146,42,0.3);}
-.btn-primary:hover:not(:disabled){background:linear-gradient(180deg,var(--gold3) 0%,var(--gold2) 100%);box-shadow:0 4px 16px rgba(200,146,42,0.4);transform:translateY(-1px);}
+.btn-primary:hover:not(:disabled){background:linear-gradient(180deg,var(--gold3) 0%,var(--gold2) 100%);transform:translateY(-1px);}
 .btn-ghost{background:rgba(255,255,255,0.04);color:var(--text2);border:1px solid var(--border);}
 .btn-ghost:hover:not(:disabled){color:var(--text);border-color:var(--border2);}
 .btn-success{background:rgba(45,107,45,0.25);color:var(--green3);border:1px solid rgba(45,107,45,0.4);}
@@ -63,26 +79,38 @@ body{background:var(--stone);background-image:radial-gradient(ellipse at 20% 50%
 .btn-danger{background:rgba(139,28,28,0.25);color:#e87070;border:1px solid rgba(139,28,28,0.4);}
 .btn-danger:hover:not(:disabled){background:rgba(139,28,28,0.4);}
 .btn-sm{padding:5px 12px;font-size:0.7rem;}.btn-lg{padding:12px 28px;font-size:0.85rem;}.btn-full{width:100%;justify-content:center;}
+
+/* FORM */
 .form-group{margin-bottom:14px;}
 .form-label{display:block;font-family:'Cinzel',serif;font-size:0.7rem;font-weight:600;color:var(--text2);margin-bottom:5px;letter-spacing:1.5px;text-transform:uppercase;}
 .form-input{width:100%;padding:9px 12px;background:var(--stone3);border:1px solid var(--border);color:var(--text);font-family:'Crimson Pro',serif;font-size:1rem;border-radius:2px;outline:none;transition:border-color 0.15s;}
 .form-input:focus{border-color:var(--gold);box-shadow:0 0 0 2px rgba(200,146,42,0.1);}
 .form-input::placeholder{color:var(--text3);opacity:0.7;}
 select.form-input option{background:var(--stone3);}
-textarea.form-input{resize:vertical;min-height:80px;}
+textarea.form-input{resize:vertical;min-height:70px;}
+
+/* PANEL */
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);position:relative;overflow:hidden;}
 .panel::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--border2),transparent);}
 .panel-body{padding:18px;}
+
+/* SECTION */
 .section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px;}
 .section-title{font-family:'Cinzel',serif;font-size:1.3rem;font-weight:900;color:var(--gold2);letter-spacing:2px;text-transform:uppercase;text-shadow:0 0 20px rgba(200,146,42,0.3);}
+
+/* BADGE */
 .badge{display:inline-flex;align-items:center;font-family:'Cinzel',serif;font-size:0.6rem;font-weight:700;padding:2px 8px;border-radius:2px;letter-spacing:1.5px;text-transform:uppercase;}
 .badge-open{background:rgba(45,107,45,0.25);color:var(--green3);border:1px solid rgba(45,107,45,0.4);}
 .badge-finished{background:rgba(100,90,70,0.2);color:var(--text3);border:1px solid rgba(100,90,70,0.3);}
 .badge-type{background:rgba(200,146,42,0.1);color:var(--gold2);border:1px solid rgba(200,146,42,0.25);}
+
+/* FILTER */
 .filter-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;}
 .filter-btn{background:rgba(0,0,0,0.3);border:1px solid var(--border);color:var(--text2);font-family:'Cinzel',serif;font-size:0.68rem;font-weight:600;padding:5px 14px;border-radius:2px;cursor:pointer;transition:all 0.15s;letter-spacing:1px;text-transform:uppercase;}
 .filter-btn:hover{color:var(--gold2);border-color:var(--border2);}
 .filter-btn.active{background:rgba(200,146,42,0.12);border-color:var(--gold);color:var(--gold2);}
+
+/* MATCH GRID */
 .match-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
 @media(max-width:1200px){.match-grid{grid-template-columns:repeat(2,1fr);}}
 @media(max-width:700px){.match-grid{grid-template-columns:1fr;}}
@@ -99,23 +127,39 @@ textarea.form-input{resize:vertical;min-height:80px;}
 .vs-text{text-align:center;font-family:'Cinzel',serif;font-weight:900;font-size:0.9rem;color:var(--border2);}
 .odds-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
 .odds-btn{padding:10px 8px;border-radius:2px;text-align:center;cursor:pointer;border:1px solid var(--border);background:rgba(0,0,0,0.3);transition:all 0.15s;}
-.odds-btn:hover{border-color:var(--gold);}
-.odds-btn.selected{border-color:var(--gold);background:rgba(200,146,42,0.1);}
-.odds-btn.winner{border-color:var(--green2);background:rgba(45,107,45,0.15);}
-.odds-btn.loser{opacity:0.45;}
+.odds-btn:hover{border-color:var(--gold);}.odds-btn.selected{border-color:var(--gold);background:rgba(200,146,42,0.1);}
+.odds-btn.winner{border-color:var(--green2);background:rgba(45,107,45,0.15);}.odds-btn.loser{opacity:0.45;}
 .odds-label{font-family:'Cinzel',serif;font-size:0.6rem;font-weight:600;color:var(--text2);letter-spacing:1px;margin-bottom:4px;text-transform:uppercase;}
 .odds-value{font-family:'Cinzel',serif;font-size:1.4rem;font-weight:900;color:var(--gold2);}
 .odds-btn.winner .odds-value{color:var(--green3);}
-.bet-row{display:flex;gap:8px;}
-.bet-row .form-input{flex:1;padding:8px 10px;font-size:0.9rem;}
+.bet-row{display:flex;gap:8px;}.bet-row .form-input{flex:1;padding:8px 10px;font-size:0.9rem;}
 .match-footer{padding:8px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:rgba(0,0,0,0.2);flex-wrap:wrap;gap:6px;margin-top:auto;}
 .match-footer-stat{font-size:0.7rem;color:var(--text3);font-style:italic;}
+
+/* COMMENTS */
+.comments-section{border-top:1px solid var(--border);padding:12px 14px;background:rgba(0,0,0,0.15);}
+.comments-title{font-family:'Cinzel',serif;font-size:0.7rem;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;}
+.comment-row{display:flex;gap:8px;margin-bottom:8px;align-items:flex-start;}
+.comment-avatar{width:24px;height:24px;border-radius:50%;background:var(--stone3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'Cinzel',serif;font-size:0.7rem;font-weight:700;color:var(--gold2);flex-shrink:0;margin-top:2px;}
+.comment-body{flex:1;min-width:0;}
+.comment-user{font-family:'Cinzel',serif;font-size:0.7rem;font-weight:700;color:var(--gold2);}
+.comment-time{font-size:0.65rem;color:var(--text3);margin-left:6px;}
+.comment-text{font-size:0.82rem;color:var(--text2);margin-top:2px;word-break:break-word;}
+.comment-input-row{display:flex;gap:6px;margin-top:10px;}
+.comment-input-row .form-input{flex:1;padding:6px 10px;font-size:0.85rem;}
+
+/* ALERT */
 .alert{padding:8px 12px;border-radius:2px;font-size:0.88rem;margin-top:8px;}
 .alert-err{background:rgba(139,28,28,0.2);border:1px solid rgba(139,28,28,0.4);color:#e87070;}
 .alert-ok{background:rgba(45,107,45,0.2);border:1px solid rgba(45,107,45,0.4);color:var(--green3);}
+.alert-info{background:rgba(200,146,42,0.1);border:1px solid rgba(200,146,42,0.3);color:var(--gold2);}
 .mb-12{margin-bottom:12px;}.mb-16{margin-bottom:16px;}
+
+/* RESOLVE */
 .resolve-section{display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(200,146,42,0.05);border-top:1px solid rgba(200,146,42,0.15);flex-wrap:wrap;}
 .resolve-label{font-family:'Cinzel',serif;font-size:0.65rem;color:var(--text3);letter-spacing:1px;text-transform:uppercase;flex-shrink:0;}
+
+/* MODAL */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.8);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;}
 .modal{background:var(--panel);border:1px solid var(--border2);border-radius:var(--radius);width:100%;max-width:500px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.8);position:relative;}
 .modal::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--gold),transparent);}
@@ -125,6 +169,23 @@ textarea.form-input{resize:vertical;min-height:80px;}
 .modal-close:hover{color:var(--gold);border-color:var(--border2);}
 .modal-body{padding:0 22px 22px;}
 .modal-hint{font-size:0.82rem;color:var(--text3);margin-bottom:14px;line-height:1.5;font-style:italic;}
+
+/* NOTIFICATIONS PANEL */
+.notif-panel{position:absolute;top:60px;right:24px;width:340px;background:var(--panel);border:1px solid var(--border2);border-radius:var(--radius);box-shadow:0 16px 40px rgba(0,0,0,0.6);z-index:300;overflow:hidden;}
+.notif-panel::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--gold),transparent);}
+.notif-head{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.notif-head-title{font-family:'Cinzel',serif;font-size:0.8rem;font-weight:700;color:var(--gold2);letter-spacing:1px;text-transform:uppercase;}
+.notif-list{max-height:320px;overflow-y:auto;}
+.notif-item{padding:12px 16px;border-bottom:1px solid rgba(74,63,34,0.4);display:flex;gap:10px;align-items:flex-start;transition:background 0.15s;}
+.notif-item:hover{background:rgba(200,146,42,0.05);}
+.notif-item.unread{background:rgba(200,146,42,0.06);}
+.notif-item:last-child{border-bottom:none;}
+.notif-icon{font-size:1.1rem;flex-shrink:0;margin-top:2px;}
+.notif-text{font-size:0.82rem;color:var(--text2);flex:1;}
+.notif-time{font-size:0.7rem;color:var(--text3);margin-top:3px;font-style:italic;}
+.notif-empty{padding:24px;text-align:center;font-size:0.85rem;color:var(--text3);font-style:italic;}
+
+/* AUTH */
 .auth-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--stone);background-image:radial-gradient(ellipse at center,rgba(200,146,42,0.06) 0%,transparent 70%);}
 .auth-box{width:100%;max-width:420px;}
 .auth-logo{text-align:center;margin-bottom:28px;}
@@ -135,17 +196,25 @@ textarea.form-input{resize:vertical;min-height:80px;}
 .auth-tab{flex:1;padding:10px;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;font-family:'Cinzel',serif;font-size:0.75rem;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);cursor:pointer;transition:all 0.15s;}
 .auth-tab.active{color:var(--gold2);border-bottom-color:var(--gold);}
 .auth-footer{text-align:center;margin-top:10px;font-size:0.82rem;color:var(--text3);font-style:italic;}
+
+/* ADMIN */
 .admin-bar{background:linear-gradient(135deg,rgba(139,28,28,0.12),rgba(180,40,40,0.06));border:1px solid rgba(139,28,28,0.35);border-radius:var(--radius);padding:12px 18px;margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
 .admin-bar-text{flex:1;font-size:0.88rem;color:#e87070;}
 .admin-bar-text strong{display:block;font-family:'Cinzel',serif;font-size:0.85rem;letter-spacing:2px;text-transform:uppercase;margin-bottom:2px;}
+
+/* LEADERBOARD */
 .lb-row{display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid rgba(74,63,34,0.5);}
 .lb-row:last-child{border-bottom:none;}
 .lb-rank{font-family:'Cinzel',serif;font-size:1.1rem;font-weight:900;width:36px;text-align:center;flex-shrink:0;}
 .lb-avatar{width:40px;height:40px;border-radius:50%;background:var(--stone3);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'Cinzel',serif;font-size:1.1rem;font-weight:700;flex-shrink:0;}
 .lb-info{flex:1;min-width:0;}
 .lb-name{font-family:'Cinzel',serif;font-weight:600;font-size:0.88rem;color:var(--text);}
-.lb-sub{font-size:0.75rem;color:var(--text3);font-style:italic;margin-top:1px;}
+.lb-sub{font-size:0.72rem;color:var(--text3);font-style:italic;margin-top:2px;}
+.lb-right{display:flex;flex-direction:column;align-items:flex-end;gap:3px;}
 .lb-coins{font-family:'Cinzel',serif;font-size:1rem;font-weight:700;color:var(--gold2);white-space:nowrap;}
+.lb-winrate{font-size:0.7rem;color:var(--green3);font-style:italic;}
+
+/* PROFILE */
 .profile-hero{display:flex;align-items:flex-start;gap:16px;margin-bottom:20px;flex-wrap:wrap;}
 .profile-avatar{width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,var(--stone4),var(--stone2));border:2px solid var(--border2);display:flex;align-items:center;justify-content:center;font-family:'Cinzel',serif;font-size:2rem;font-weight:900;color:var(--gold2);flex-shrink:0;}
 .profile-info{flex:1;min-width:0;}
@@ -153,9 +222,8 @@ textarea.form-input{resize:vertical;min-height:80px;}
 .profile-bio{font-size:0.88rem;color:var(--text2);margin-top:4px;font-style:italic;}
 .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
 .stat-card{background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:2px;padding:16px;text-align:center;}
-.stat-val{font-family:'Cinzel',serif;font-size:1.6rem;font-weight:900;color:var(--gold2);}
-.stat-val.green{color:var(--green3);}
-.stat-val.blue{color:#6bb8ff;}
+.stat-val{font-family:'Cinzel',serif;font-size:1.5rem;font-weight:900;color:var(--gold2);}
+.stat-val.green{color:var(--green3);}.stat-val.blue{color:var(--blue2);}
 .stat-label{font-family:'Cinzel',serif;font-size:0.6rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:2px;margin-top:4px;}
 .bet-hist-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid rgba(74,63,34,0.5);flex-wrap:wrap;}
 .bet-hist-row:last-child{border-bottom:none;}
@@ -163,16 +231,8 @@ textarea.form-input{resize:vertical;min-height:80px;}
 .bet-detail{font-size:0.78rem;color:var(--text3);margin-top:2px;font-style:italic;}
 .bet-result{font-family:'Cinzel',serif;font-weight:700;font-size:0.82rem;white-space:nowrap;}
 .text-green{color:var(--green3);}.text-red{color:#e87070;}.text-muted{color:var(--text2);}
-.empty-state{text-align:center;padding:60px 20px;color:var(--text3);}
-.empty-state h3{font-family:'Cinzel',serif;font-size:1.1rem;font-weight:700;color:var(--text2);margin-bottom:8px;letter-spacing:1px;}
-.empty-state p{font-size:0.88rem;font-style:italic;}
-.empty-icon{font-size:2.5rem;margin-bottom:12px;opacity:0.4;}
-.loading-wrap{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--stone);gap:16px;}
-.loading-text{font-family:'Cinzel',serif;color:var(--gold);letter-spacing:4px;font-size:1rem;}
-.spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;}
-@keyframes spin{to{transform:rotate(360deg);}}
 
-/* ── GALLERY ── */
+/* GALLERY */
 .gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;}
 .gallery-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:border-color 0.2s,transform 0.2s;animation:fadeUp 0.3s ease both;}
 .gallery-card:hover{border-color:var(--border2);transform:translateY(-2px);}
@@ -186,27 +246,58 @@ textarea.form-input{resize:vertical;min-height:80px;}
 .upload-icon{font-size:2rem;opacity:0.5;}
 .upload-preview{width:100%;max-height:200px;object-fit:cover;border-radius:2px;margin-bottom:12px;border:1px solid var(--border);}
 
+/* HALL OF FAME */
+.hof-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;display:flex;align-items:center;gap:14px;animation:fadeUp 0.3s ease both;margin-bottom:10px;}
+.hof-card:first-child{border-color:var(--gold);background:rgba(200,146,42,0.06);}
+.hof-medal{font-size:1.8rem;flex-shrink:0;width:44px;text-align:center;}
+.hof-info{flex:1;}
+.hof-name{font-family:'Cinzel',serif;font-weight:700;font-size:0.9rem;color:var(--text);}
+.hof-match{font-size:0.8rem;color:var(--text3);font-style:italic;margin-top:2px;}
+.hof-amount{font-family:'Cinzel',serif;font-size:1.3rem;font-weight:900;color:var(--gold2);white-space:nowrap;}
+
+/* DAILY BONUS */
+.daily-bonus-bar{background:linear-gradient(135deg,rgba(45,107,45,0.15),rgba(61,139,61,0.08));border:1px solid rgba(45,107,45,0.4);border-radius:var(--radius);padding:12px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.daily-bonus-text{flex:1;font-size:0.88rem;color:var(--green3);}
+.daily-bonus-text strong{display:block;font-family:'Cinzel',serif;font-size:0.85rem;letter-spacing:1px;margin-bottom:2px;}
+
+/* EMPTY */
+.empty-state{text-align:center;padding:60px 20px;color:var(--text3);}
+.empty-state h3{font-family:'Cinzel',serif;font-size:1.1rem;font-weight:700;color:var(--text2);margin-bottom:8px;letter-spacing:1px;}
+.empty-state p{font-size:0.88rem;font-style:italic;}
+.empty-icon{font-size:2.5rem;margin-bottom:12px;opacity:0.4;}
+
+/* LOADING */
+.loading-wrap{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--stone);gap:16px;}
+.loading-text{font-family:'Cinzel',serif;color:var(--gold);letter-spacing:4px;font-size:1rem;}
+.spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
 .flex{display:flex;}.gap-8{gap:8px;}.gap-12{gap:12px;}.divider{height:1px;background:var(--border);margin:16px 0;}
 @media(max-width:768px){.nav-tabs{display:none;}.hamburger{display:flex;}.page{padding:16px;}.stats-grid{grid-template-columns:repeat(2,1fr);}}
-@media(max-width:480px){.stats-grid{grid-template-columns:1fr 1fr;}.section-header{flex-direction:column;align-items:flex-start;}.nav-brand{font-size:1rem;}.modal-head,.modal-body{padding-left:16px;padding-right:16px;}}
+@media(max-width:480px){.stats-grid{grid-template-columns:1fr 1fr;}.section-header{flex-direction:column;align-items:flex-start;}.nav-brand{font-size:0.95rem;letter-spacing:2px;}.modal-head,.modal-body{padding-left:16px;padding-right:16px;}.notif-panel{right:8px;width:calc(100vw - 16px);}}
 `;
 
 const IcoX = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
 const IcoPlus = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
 const IcoMenu = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>;
 const IcoCoin = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M9 9h4.5a2.5 2.5 0 0 1 0 5H9"/></svg>;
+const IcoBell = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>;
 
 export default function App() {
   const [users, setUsers] = useState({});
   const [matches, setMatches] = useState([]);
   const [bets, setBets] = useState([]);
+  const [comments, setComments] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [gallery, setGallery] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [tab, setTab] = useState("matches");
   const [authMode, setAuthMode] = useState("login");
   const [loading, setLoading] = useState(true);
   const [showNewMatch, setShowNewMatch] = useState(false);
+  const [showNotifs, setShowNotifs] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [dailyBonusMsg, setDailyBonusMsg] = useState("");
 
   useEffect(() => {
     const saved = localStorage.getItem("aoe2_current_user");
@@ -214,12 +305,31 @@ export default function App() {
     loadAll();
   }, []);
 
+  useEffect(() => {
+    if (currentUser) checkDailyBonus();
+  }, [currentUser?.username]);
+
+  const checkDailyBonus = async () => {
+    const key = `aoe2_daily_${currentUser.username}`;
+    const last = localStorage.getItem(key);
+    const now = Date.now();
+    if (!last || now - parseInt(last) > 86400000) {
+      const newCoins = (currentUser.coins || 0) + DAILY_BONUS;
+      await sb.from("users").update({ coins: newCoins }).eq("username", currentUser.username);
+      localStorage.setItem(key, now.toString());
+      setDailyBonusMsg(`+${DAILY_BONUS} Gold dnevni bonus!`);
+      await refreshUser(currentUser.username);
+      setTimeout(() => setDailyBonusMsg(""), 5000);
+    }
+  };
+
   const loadAll = async () => {
     setLoading(true);
-    const [{ data: u }, { data: m }, { data: b }, { data: g }] = await Promise.all([
+    const [{ data: u }, { data: m }, { data: b }, { data: c }, { data: g }] = await Promise.all([
       sb.from("users").select("*"),
       sb.from("matches").select("*").order("created_at", { ascending: false }),
       sb.from("bets").select("*"),
+      sb.from("comments").select("*").order("created_at", { ascending: true }),
       sb.from("gallery").select("*").order("created_at", { ascending: false }),
     ]);
     const usersMap = {};
@@ -227,8 +337,14 @@ export default function App() {
     setUsers(usersMap);
     setMatches(m || []);
     setBets(b || []);
+    setComments(c || []);
     setGallery(g || []);
     setLoading(false);
+  };
+
+  const loadNotifications = async (username) => {
+    const { data } = await sb.from("notifications").select("*").eq("username", username).order("created_at", { ascending: false }).limit(20);
+    setNotifications(data || []);
   };
 
   const refreshUser = async (username) => {
@@ -236,15 +352,26 @@ export default function App() {
     if (data) { setCurrentUser(data); localStorage.setItem("aoe2_current_user", JSON.stringify(data)); }
   };
 
-  const logout = () => { setCurrentUser(null); localStorage.removeItem("aoe2_current_user"); setTab("matches"); };
+  const logout = () => { setCurrentUser(null); localStorage.removeItem("aoe2_current_user"); setTab("matches"); setNotifications([]); };
   const isAdmin = currentUser?.username === ADMIN_USERNAME;
-  const navTo = (t) => { setTab(t); setMobileOpen(false); };
+  const navTo = (t) => { setTab(t); setMobileOpen(false); setShowNotifs(false); };
+
+  const toggleNotifs = async () => {
+    if (!showNotifs && currentUser) {
+      await loadNotifications(currentUser.username);
+      // Mark all as read
+      await sb.from("notifications").update({ read: true }).eq("username", currentUser.username).eq("read", false);
+    }
+    setShowNotifs(o => !o);
+  };
+
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   const placeBet = async (matchId, side, amount) => {
     if (!currentUser || amount <= 0 || currentUser.coins < amount) return false;
     if (bets.find(b => b.match_id === matchId && b.username === currentUser.username)) return false;
-    const { error: e1 } = await sb.from("bets").insert({ id: `b${Date.now()}`, match_id: matchId, username: currentUser.username, side, amount });
-    if (e1) return false;
+    const { error } = await sb.from("bets").insert({ id: `b${Date.now()}`, match_id: matchId, username: currentUser.username, side, amount });
+    if (error) return false;
     await sb.from("users").update({ coins: currentUser.coins - amount }).eq("username", currentUser.username);
     await refreshUser(currentUser.username);
     await loadAll();
@@ -258,11 +385,32 @@ export default function App() {
     const winOdds = winner === "A" ? oddsA : oddsB;
     for (const bet of bets.filter(b => b.match_id === matchId && b.side === winner)) {
       const user = users[bet.username];
-      if (user) await sb.from("users").update({ coins: user.coins + Math.floor(bet.amount * winOdds) }).eq("username", bet.username);
+      if (user) {
+        const prize = Math.floor(bet.amount * winOdds);
+        await sb.from("users").update({ coins: user.coins + prize }).eq("username", bet.username);
+        await sb.from("notifications").insert({ id: `n${Date.now()}${Math.random()}`, username: bet.username, message: `🏆 Pobijedio si! +${prize} Gold na meču "${match.title}"`, read: false, created_at: Date.now() });
+      }
+    }
+    // Notify losers
+    for (const bet of bets.filter(b => b.match_id === matchId && b.side !== winner)) {
+      await sb.from("notifications").insert({ id: `n${Date.now()}${Math.random()}`, username: bet.username, message: `😞 Izgubio si ${bet.amount} Gold na meču "${match.title}"`, read: false, created_at: Date.now() });
     }
     await sb.from("matches").update({ status: "finished", winner }).eq("id", matchId);
     if (currentUser) await refreshUser(currentUser.username);
     await loadAll();
+  };
+
+  const addComment = async (matchId, text) => {
+    if (!text.trim() || !currentUser) return;
+    await sb.from("comments").insert({ id: `c${Date.now()}`, match_id: matchId, username: currentUser.username, text: text.trim(), created_at: Date.now() });
+    await loadAll();
+  };
+
+  const sendNewMatchNotification = async (title) => {
+    const { data: allUsers } = await sb.from("users").select("username");
+    if (!allUsers) return;
+    const inserts = allUsers.filter(u => u.username !== ADMIN_USERNAME).map(u => ({ id: `n${Date.now()}${Math.random()}`, username: u.username, message: `⚔ Novi meč je dodan: "${title}" — Kladite se!`, read: false, created_at: Date.now() }));
+    if (inserts.length) await sb.from("notifications").insert(inserts);
   };
 
   if (loading) return <div className="loading-wrap"><style>{css}</style><div className="spinner"></div><div className="loading-text">UČITAVANJE...</div></div>;
@@ -272,11 +420,12 @@ export default function App() {
     { id: "matches", label: "⚔ Mečevi" },
     { id: "gallery", label: "🖼 Galerija" },
     { id: "leaderboard", label: "🏆 Ljestvica" },
+    { id: "halloffame", label: "👑 Hall of Fame" },
     { id: "profile", label: "👤 Profil" },
   ];
 
   return (
-    <div className="app">
+    <div className="app" onClick={() => showNotifs && setShowNotifs(false)}>
       <style>{css}</style>
       <nav className="nav">
         <div className="nav-inner">
@@ -285,11 +434,39 @@ export default function App() {
           <div className="nav-right">
             <div className="coins-badge"><IcoCoin /> {currentUser.coins?.toLocaleString()} G</div>
             {isAdmin && <span className="admin-badge">ADMIN</span>}
+            <button className="notif-btn" onClick={e => { e.stopPropagation(); toggleNotifs(); }}>
+              <IcoBell />
+              {unreadCount > 0 && <span className="notif-dot"></span>}
+            </button>
             <button className="btn btn-ghost btn-sm" onClick={logout}>Odjava</button>
             <button className="hamburger" onClick={() => setMobileOpen(o => !o)}><IcoMenu /></button>
           </div>
         </div>
       </nav>
+
+      {showNotifs && (
+        <div className="notif-panel" onClick={e => e.stopPropagation()}>
+          <div className="notif-head">
+            <span className="notif-head-title">🔔 Obavijesti</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowNotifs(false)}>Zatvori</button>
+          </div>
+          <div className="notif-list">
+            {notifications.length === 0
+              ? <div className="notif-empty">Nema obavijesti.</div>
+              : notifications.map(n => (
+                <div key={n.id} className={`notif-item ${!n.read ? "unread" : ""}`}>
+                  <div className="notif-icon">{n.message.startsWith("🏆") ? "🏆" : n.message.startsWith("😞") ? "😞" : "⚔"}</div>
+                  <div>
+                    <div className="notif-text">{n.message}</div>
+                    <div className="notif-time">{timeAgo(n.created_at)}</div>
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      )}
+
       <div className={`mobile-menu ${mobileOpen ? "open" : ""}`}>
         {tabs.map(t => <button key={t.id} className={`mobile-tab ${tab === t.id ? "active" : ""}`} onClick={() => navTo(t.id)}>{t.label}</button>)}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10, borderTop: "1px solid var(--border)", marginTop: 4 }}>
@@ -297,10 +474,13 @@ export default function App() {
           <button className="btn btn-ghost btn-sm" onClick={logout}>Odjava</button>
         </div>
       </div>
+
       <div className="page">
-        {tab === "matches" && <MatchesTab matches={matches} bets={bets} currentUser={currentUser} placeBet={placeBet} resolveMatch={resolveMatch} isAdmin={isAdmin} showNewMatch={showNewMatch} setShowNewMatch={setShowNewMatch} loadAll={loadAll} users={users} />}
+        {dailyBonusMsg && <div className="daily-bonus-bar"><div className="daily-bonus-text"><strong>🎁 Dnevni Bonus!</strong>{dailyBonusMsg} Vrati se sutra za još Gold-a!</div></div>}
+        {tab === "matches" && <MatchesTab matches={matches} bets={bets} comments={comments} currentUser={currentUser} placeBet={placeBet} resolveMatch={resolveMatch} addComment={addComment} isAdmin={isAdmin} showNewMatch={showNewMatch} setShowNewMatch={setShowNewMatch} loadAll={loadAll} users={users} sendNewMatchNotification={sendNewMatchNotification} />}
         {tab === "gallery" && <GalleryTab gallery={gallery} currentUser={currentUser} loadAll={loadAll} isAdmin={isAdmin} />}
-        {tab === "leaderboard" && <LeaderboardTab users={users} />}
+        {tab === "leaderboard" && <LeaderboardTab users={users} bets={bets} matches={matches} />}
+        {tab === "halloffame" && <HallOfFameTab bets={bets} matches={matches} />}
         {tab === "profile" && <ProfileTab currentUser={currentUser} bets={bets} matches={matches} loadAll={loadAll} refreshUser={refreshUser} />}
       </div>
     </div>
@@ -353,18 +533,20 @@ function AuthScreen({ mode, setMode, users, loadAll, setCurrentUser }) {
           </>}
           <button className="btn btn-primary btn-lg btn-full" type="submit" disabled={loading}>{loading ? "..." : mode === "login" ? "⚔ Ulaz na Arenu" : "✦ Registriraj se"}</button>
         </form>
-        {mode === "register" && <p className="auth-footer">Dobivate {INITIAL_COINS.toLocaleString()} Gold za početak!</p>}
+        {mode === "register" && <p className="auth-footer">Dobivate {INITIAL_COINS.toLocaleString()} Gold + {DAILY_BONUS}G dnevni bonus za početak!</p>}
       </div></div>
     </div>
   );
 }
 
 // ── Matches ───────────────────────────────────────────────────────────────────
-function MatchesTab({ matches, bets, currentUser, placeBet, resolveMatch, isAdmin, showNewMatch, setShowNewMatch, loadAll, users }) {
+function MatchesTab({ matches, bets, comments, currentUser, placeBet, resolveMatch, addComment, isAdmin, showNewMatch, setShowNewMatch, loadAll, users, sendNewMatchNotification }) {
   const [filter, setFilter] = useState("sve");
   const [betInputs, setBetInputs] = useState({});
   const [selectedSide, setSelectedSide] = useState({});
   const [msg, setMsg] = useState({});
+  const [expandedComments, setExpandedComments] = useState({});
+  const [commentInputs, setCommentInputs] = useState({});
 
   const filters = ["sve", "otvoreno", "završeno", "1v1", "2v2", "1v2", "3v3"];
   const filtered = matches.filter(m => {
@@ -375,6 +557,7 @@ function MatchesTab({ matches, bets, currentUser, placeBet, resolveMatch, isAdmi
   });
 
   const myBet = (id) => bets.find(b => b.match_id === id && b.username === currentUser.username);
+  const matchComments = (id) => comments.filter(c => c.match_id === id);
 
   const handleBet = async (matchId) => {
     const side = selectedSide[matchId], amount = parseInt(betInputs[matchId] || 0);
@@ -386,6 +569,13 @@ function MatchesTab({ matches, bets, currentUser, placeBet, resolveMatch, isAdmi
     if (ok) setBetInputs(b => ({ ...b, [matchId]: "" }));
   };
 
+  const handleComment = async (matchId) => {
+    const text = commentInputs[matchId] || "";
+    if (!text.trim()) return;
+    await addComment(matchId, text);
+    setCommentInputs(c => ({ ...c, [matchId]: "" }));
+  };
+
   return (
     <div>
       {isAdmin && <div className="admin-bar"><div className="admin-bar-text"><strong>⚡ Admin Panel</strong>Prijavljen si kao administrator.</div><button className="btn btn-primary" onClick={() => setShowNewMatch(true)}><IcoPlus /> Novi meč</button></div>}
@@ -394,6 +584,7 @@ function MatchesTab({ matches, bets, currentUser, placeBet, resolveMatch, isAdmi
         <span style={{ fontSize: "0.78rem", color: "var(--text3)", fontStyle: "italic" }}>{filtered.length} mečeva</span>
       </div>
       <div className="filter-bar">{filters.map(f => <button key={f} className={`filter-btn ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>{f.toUpperCase()}</button>)}</div>
+
       {filtered.length === 0 ? (
         <div className="empty-state"><div className="empty-icon">⚔</div><h3>Nema mečeva</h3><p>{isAdmin ? "Klikni 'Novi meč' za dodavanje." : "Admin još nije dodao mečeve."}</p></div>
       ) : (
@@ -404,6 +595,8 @@ function MatchesTab({ matches, bets, currentUser, placeBet, resolveMatch, isAdmi
             const bet = myBet(match.id);
             const matchBets = bets.filter(b => b.match_id === match.id);
             const pool = matchBets.reduce((s, b) => s + b.amount, 0);
+            const mc = matchComments(match.id);
+            const showCmts = expandedComments[match.id];
             return (
               <div key={match.id} className="match-card" style={{ animationDelay: `${i * 0.05}s` }}>
                 <div className="match-head">
@@ -412,15 +605,9 @@ function MatchesTab({ matches, bets, currentUser, placeBet, resolveMatch, isAdmi
                 </div>
                 <div className="match-body">
                   <div className="versus">
-                    <div className="team">
-                      <div className="team-name">{teamA.map(p => p.username).join(" & ")}</div>
-                      <div className="team-exp">{teamA.map(p => `${p.experience || 0}g / ${p.ranked_points || 0}rp`).join(", ")}</div>
-                    </div>
+                    <div className="team"><div className="team-name">{teamA.map(p => p.username).join(" & ")}</div><div className="team-exp">{teamA.map(p => `${p.experience || 0}g/${p.ranked_points || 0}rp`).join(", ")}</div></div>
                     <div className="vs-text">VS</div>
-                    <div className="team">
-                      <div className="team-name">{teamB.map(p => p.username).join(" & ")}</div>
-                      <div className="team-exp">{teamB.map(p => `${p.experience || 0}g / ${p.ranked_points || 0}rp`).join(", ")}</div>
-                    </div>
+                    <div className="team"><div className="team-name">{teamB.map(p => p.username).join(" & ")}</div><div className="team-exp">{teamB.map(p => `${p.experience || 0}g/${p.ranked_points || 0}rp`).join(", ")}</div></div>
                   </div>
                   <div className="odds-grid">
                     {[["A", oddsA], ["B", oddsB]].map(([side, odds]) => {
@@ -434,20 +621,45 @@ function MatchesTab({ matches, bets, currentUser, placeBet, resolveMatch, isAdmi
                   )}
                   {match.status === "finished" && <div style={{ fontSize: "0.8rem", color: "var(--text3)", marginTop: 8, fontStyle: "italic" }}>Pobijedio: <span style={{ color: "var(--green3)", fontStyle: "normal", fontFamily: "'Cinzel',serif" }}>Tim {match.winner}</span>{bet && <span style={{ marginLeft: 8 }}>• Tim {bet.side} {bet.side === match.winner ? <span className="text-green">✓ Dobio</span> : <span className="text-red">✗ Izgubio</span>}</span>}</div>}
                 </div>
+
                 {isAdmin && match.status === "open" && <div className="resolve-section"><span className="resolve-label">Pobjednik:</span><button className="btn btn-success btn-sm" onClick={() => resolveMatch(match.id, "A")}>Tim A</button><button className="btn btn-success btn-sm" onClick={() => resolveMatch(match.id, "B")}>Tim B</button></div>}
+
+                {/* COMMENTS */}
+                <div className="comments-section">
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: showCmts ? 10 : 0 }}>
+                    <div className="comments-title">💬 Komentari ({mc.length})</div>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setExpandedComments(e => ({ ...e, [match.id]: !e[match.id] }))}>{showCmts ? "Sakrij" : "Prikaži"}</button>
+                  </div>
+                  {showCmts && <>
+                    {mc.map(c => (
+                      <div key={c.id} className="comment-row">
+                        <div className="comment-avatar">{c.username[0].toUpperCase()}</div>
+                        <div className="comment-body">
+                          <span className="comment-user">{c.username}</span><span className="comment-time">{timeAgo(c.created_at)}</span>
+                          <div className="comment-text">{c.text}</div>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="comment-input-row">
+                      <input className="form-input" placeholder="Napiši komentar..." value={commentInputs[match.id] || ""} onChange={e => setCommentInputs(c => ({ ...c, [match.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && handleComment(match.id)} />
+                      <button className="btn btn-primary btn-sm" onClick={() => handleComment(match.id)}>Pošalji</button>
+                    </div>
+                  </>}
+                </div>
+
                 <div className="match-footer"><span className="match-footer-stat">{matchBets.length} klađenja</span><span className="match-footer-stat">Fond: {pool.toLocaleString()} G</span></div>
               </div>
             );
           })}
         </div>
       )}
-      {showNewMatch && <NewMatchModal onClose={() => setShowNewMatch(false)} loadAll={loadAll} users={users} />}
+      {showNewMatch && <NewMatchModal onClose={() => setShowNewMatch(false)} loadAll={loadAll} users={users} sendNewMatchNotification={sendNewMatchNotification} />}
     </div>
   );
 }
 
 // ── New Match Modal ───────────────────────────────────────────────────────────
-function NewMatchModal({ onClose, loadAll, users }) {
+function NewMatchModal({ onClose, loadAll, users, sendNewMatchNotification }) {
   const [form, setForm] = useState({ title: "", type: "1v1", teamA: "", teamB: "" });
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -464,6 +676,7 @@ function NewMatchModal({ onClose, loadAll, users }) {
     setLoading(true);
     const { error } = await sb.from("matches").insert({ id: `m${Date.now()}`, type: form.type, title: form.title.trim(), status: "open", team_a: pA, team_b: pB, winner: null, created_at: Date.now() });
     if (error) { setLoading(false); return setErr("Greška pri kreiranju meča."); }
+    await sendNewMatchNotification(form.title.trim());
     await loadAll(); setLoading(false); onClose();
   };
   return (
@@ -476,7 +689,7 @@ function NewMatchModal({ onClose, loadAll, users }) {
           <div className="form-group"><label className="form-label">Format</label><select className="form-input" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value, teamA: "", teamB: "" }))}>{["1v1", "2v2", "1v2", "1v3", "2v3", "3v3"].map(t => <option key={t}>{t}</option>)}</select></div>
           <div className="form-group"><label className="form-label">Tim A — {sizeA} igrač(a), odvoji zarezom</label><input className="form-input" value={form.teamA} onChange={e => setForm(f => ({ ...f, teamA: e.target.value }))} placeholder={Array.from({ length: sizeA }, (_, i) => `Igrač${i + 1}`).join(", ")} /></div>
           <div className="form-group"><label className="form-label">Tim B — {sizeB} igrač(a), odvoji zarezom</label><input className="form-input" value={form.teamB} onChange={e => setForm(f => ({ ...f, teamB: e.target.value }))} placeholder={Array.from({ length: sizeB }, (_, i) => `Igrač${i + 1}`).join(", ")} /></div>
-          <p className="modal-hint">Kvote se računaju prema iskustvu (60%) i ranked points (40%). Registrirani igrači automatski prenose podatke.</p>
+          <p className="modal-hint">Svi igrači će dobiti obavijest o novom meču. Kvote se računaju prema iskustvu (60%) i ranked points (40%).</p>
           <div className="flex gap-8"><button className="btn btn-primary" onClick={create} disabled={loading}>{loading ? "..." : <><IcoPlus /> Kreiraj meč</>}</button><button className="btn btn-ghost" onClick={onClose}>Odustani</button></div>
         </div>
       </div>
@@ -494,12 +707,9 @@ function GalleryTab({ gallery, currentUser, loadAll, isAdmin }) {
   const fileRef = useRef();
 
   const handleFile = (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
+    const f = e.target.files[0]; if (!f) return;
     if (f.size > 5 * 1024 * 1024) return setErr("Slika mora biti manja od 5MB.");
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
-    setErr("");
+    setFile(f); setPreview(URL.createObjectURL(f)); setErr("");
   };
 
   const upload = async () => {
@@ -508,25 +718,18 @@ function GalleryTab({ gallery, currentUser, loadAll, isAdmin }) {
     const ext = file.name.split(".").pop();
     const path = `${currentUser.username}_${Date.now()}.${ext}`;
     const { error: upErr } = await sb.storage.from("gallery").upload(path, file);
-    if (upErr) { setUploading(false); return setErr("Greška pri uploadu: " + upErr.message); }
+    if (upErr) { setUploading(false); return setErr("Greška: " + upErr.message); }
     const { data: urlData } = sb.storage.from("gallery").getPublicUrl(path);
     await sb.from("gallery").insert({ id: `g${Date.now()}`, username: currentUser.username, url: urlData.publicUrl, caption: caption.trim(), created_at: Date.now() });
     setFile(null); setPreview(null); setCaption(""); setUploading(false);
     await loadAll();
   };
 
-  const deletePhoto = async (item) => {
-    await sb.from("gallery").delete().eq("id", item.id);
-    await loadAll();
-  };
+  const deletePhoto = async (item) => { await sb.from("gallery").delete().eq("id", item.id); await loadAll(); };
 
   return (
     <div>
-      <div className="section-header">
-        <h2 className="section-title">🖼 Galerija</h2>
-        <span style={{ fontSize: "0.78rem", color: "var(--text3)", fontStyle: "italic" }}>{gallery.length} slika</span>
-      </div>
-
+      <div className="section-header"><h2 className="section-title">🖼 Galerija</h2><span style={{ fontSize: "0.78rem", color: "var(--text3)", fontStyle: "italic" }}>{gallery.length} slika</span></div>
       <div className="panel mb-16"><div className="panel-body">
         <div style={{ fontFamily: "'Cinzel',serif", fontSize: "0.85rem", color: "var(--gold2)", marginBottom: 12, letterSpacing: 1 }}>✦ Dodaj svoju sliku</div>
         {err && <div className="alert alert-err mb-12">{err}</div>}
@@ -539,49 +742,95 @@ function GalleryTab({ gallery, currentUser, loadAll, isAdmin }) {
         <div className="form-group"><label className="form-label">Opis slike (opcionalno)</label><input className="form-input" value={caption} onChange={e => setCaption(e.target.value)} placeholder="Npr. Moja pobjeda u finalu..." /></div>
         <button className="btn btn-primary" onClick={upload} disabled={uploading || !file}>{uploading ? "Uploading..." : "📤 Objavi sliku"}</button>
       </div></div>
-
-      {gallery.length === 0 ? (
-        <div className="empty-state"><div className="empty-icon">🖼</div><h3>Nema slika</h3><p>Budi prvi koji će objaviti sliku!</p></div>
-      ) : (
-        <div className="gallery-grid">
-          {gallery.map((item, i) => (
-            <div key={item.id} className="gallery-card" style={{ animationDelay: `${i * 0.04}s` }}>
-              <img src={item.url} className="gallery-img" alt={item.caption || "gallery"} onError={e => e.target.style.display = "none"} />
-              {item.caption && <div className="gallery-caption">{item.caption}</div>}
-              <div className="gallery-footer">
-                <span className="gallery-user">⚔ {item.username}</span>
-                {(isAdmin || item.username === currentUser.username) && (
-                  <button className="btn btn-danger btn-sm" onClick={() => deletePhoto(item)}>Obriši</button>
-                )}
-              </div>
+      {gallery.length === 0
+        ? <div className="empty-state"><div className="empty-icon">🖼</div><h3>Nema slika</h3><p>Budi prvi koji će objaviti sliku!</p></div>
+        : <div className="gallery-grid">{gallery.map((item, i) => (
+          <div key={item.id} className="gallery-card" style={{ animationDelay: `${i * 0.04}s` }}>
+            <img src={item.url} className="gallery-img" alt={item.caption || "gallery"} onError={e => e.target.style.display = "none"} />
+            {item.caption && <div className="gallery-caption">{item.caption}</div>}
+            <div className="gallery-footer">
+              <span className="gallery-user">⚔ {item.username}</span>
+              {(isAdmin || item.username === currentUser.username) && <button className="btn btn-danger btn-sm" onClick={() => deletePhoto(item)}>Obriši</button>}
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        ))}</div>
+      }
     </div>
   );
 }
 
 // ── Leaderboard ───────────────────────────────────────────────────────────────
-function LeaderboardTab({ users }) {
+function LeaderboardTab({ users, bets, matches }) {
   const sorted = Object.values(users).sort((a, b) => b.coins - a.coins);
   const rankColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
+
+  const getUserStats = (username) => {
+    const myBets = bets.filter(b => b.username === username);
+    const finishedBets = myBets.filter(b => { const m = matches.find(m => m.id === b.match_id); return m?.status === "finished"; });
+    const won = finishedBets.filter(b => { const m = matches.find(m => m.id === b.match_id); return m?.winner === b.side; });
+    const wr = finishedBets.length > 0 ? Math.round((won.length / finishedBets.length) * 100) : null;
+    return { total: myBets.length, won: won.length, wr };
+  };
+
   return (
     <div>
       <div className="section-header"><h2 className="section-title">🏆 Ljestvica</h2></div>
       <div className="panel"><div className="panel-body">
-        {sorted.length === 0 ? <div className="empty-state" style={{ padding: "40px 0" }}><p>Nema registriranih igrača.</p></div> : sorted.map((u, i) => (
-          <div key={u.username} className="lb-row">
-            <div className="lb-rank" style={{ color: rankColors[i] || "var(--text3)" }}>#{i + 1}</div>
-            <div className="lb-avatar" style={{ borderColor: rankColors[i] || "var(--border)", color: rankColors[i] || "var(--text2)" }}>{u.username[0].toUpperCase()}</div>
-            <div className="lb-info">
-              <div className="lb-name">{u.username} {u.username === ADMIN_USERNAME && <span className="admin-badge">ADMIN</span>}</div>
-              <div className="lb-sub">{u.experience || 0} god. iskustva · {(u.ranked_points || 0).toLocaleString()} RP</div>
+        {sorted.length === 0 ? <div className="empty-state" style={{ padding: "40px 0" }}><p>Nema registriranih igrača.</p></div> : sorted.map((u, i) => {
+          const { total, won, wr } = getUserStats(u.username);
+          return (
+            <div key={u.username} className="lb-row">
+              <div className="lb-rank" style={{ color: rankColors[i] || "var(--text3)" }}>#{i + 1}</div>
+              <div className="lb-avatar" style={{ borderColor: rankColors[i] || "var(--border)", color: rankColors[i] || "var(--text2)" }}>{u.username[0].toUpperCase()}</div>
+              <div className="lb-info">
+                <div className="lb-name">{u.username} {u.username === ADMIN_USERNAME && <span className="admin-badge">ADMIN</span>}</div>
+                <div className="lb-sub">{u.experience || 0} god. · {(u.ranked_points || 0).toLocaleString()} RP · {total} klađenja · {won} pobjeda</div>
+              </div>
+              <div className="lb-right">
+                <div className="lb-coins"><IcoCoin /> {u.coins?.toLocaleString()} G</div>
+                {wr !== null && <div className="lb-winrate">Win rate: {wr}%</div>}
+              </div>
             </div>
-            <div className="lb-coins"><IcoCoin /> {u.coins?.toLocaleString()} G</div>
-          </div>
-        ))}
+          );
+        })}
       </div></div>
+    </div>
+  );
+}
+
+// ── Hall of Fame ───────────────────────────────────────────────────────────────
+function HallOfFameTab({ bets, matches }) {
+  const medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
+
+  const biggestWins = bets
+    .map(bet => {
+      const match = matches.find(m => m.id === bet.match_id);
+      if (!match || match.status !== "finished" || match.winner !== bet.side) return null;
+      const { oddsA, oddsB } = calcOdds(match.team_a || [], match.team_b || []);
+      const odds = bet.side === "A" ? oddsA : oddsB;
+      const profit = Math.floor(bet.amount * odds) - bet.amount;
+      return { ...bet, matchTitle: match.title, odds, profit, payout: Math.floor(bet.amount * odds) };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.payout - a.payout)
+    .slice(0, 10);
+
+  return (
+    <div>
+      <div className="section-header"><h2 className="section-title">👑 Hall of Fame</h2><span style={{ fontSize: "0.78rem", color: "var(--text3)", fontStyle: "italic" }}>Najveći dobitci svih vremena</span></div>
+      {biggestWins.length === 0
+        ? <div className="empty-state"><div className="empty-icon">👑</div><h3>Nema podataka</h3><p>Ovdje će se prikazati najveći dobitci kada se završe prvi mečevi.</p></div>
+        : biggestWins.map((w, i) => (
+          <div key={`${w.id}-${i}`} className="hof-card" style={{ animationDelay: `${i * 0.05}s` }}>
+            <div className="hof-medal">{medals[i] || "⭐"}</div>
+            <div className="hof-info">
+              <div className="hof-name">⚔ {w.username}</div>
+              <div className="hof-match">{w.matchTitle} · Tim {w.side} · {w.odds}x kvota · ulog {w.amount} G</div>
+            </div>
+            <div className="hof-amount">+{w.profit.toLocaleString()} G</div>
+          </div>
+        ))
+      }
     </div>
   );
 }
@@ -591,8 +840,17 @@ function ProfileTab({ currentUser, bets, matches, loadAll, refreshUser }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ experience: currentUser.experience || 0, ranked_points: currentUser.ranked_points || 0, bio: currentUser.bio || "" });
   const [saved, setSaved] = useState(false);
+
   const myBets = bets.filter(b => b.username === currentUser.username);
-  const wonBets = myBets.filter(b => { const m = matches.find(m => m.id === b.match_id); return m?.winner === b.side; });
+  const finishedBets = myBets.filter(b => { const m = matches.find(m => m.id === b.match_id); return m?.status === "finished"; });
+  const wonBets = finishedBets.filter(b => { const m = matches.find(m => m.id === b.match_id); return m?.winner === b.side; });
+  const winRate = finishedBets.length > 0 ? Math.round((wonBets.length / finishedBets.length) * 100) : 0;
+  const bestWin = myBets.map(bet => {
+    const match = matches.find(m => m.id === bet.match_id);
+    if (!match || match.status !== "finished" || match.winner !== bet.side) return 0;
+    const { oddsA, oddsB } = calcOdds(match.team_a || [], match.team_b || []);
+    return Math.floor(bet.amount * (bet.side === "A" ? oddsA : oddsB));
+  }).reduce((a, b) => Math.max(a, b), 0);
 
   const save = async () => {
     await sb.from("users").update({ experience: parseInt(form.experience) || 0, ranked_points: parseInt(form.ranked_points) || 0, bio: form.bio }).eq("username", currentUser.username);
@@ -617,7 +875,7 @@ function ProfileTab({ currentUser, bets, matches, loadAll, refreshUser }) {
         {editing && <div>
           <div className="divider" />
           <div className="form-group"><label className="form-label">Godine iskustva u AoE2</label><input className="form-input" type="number" min="0" max="30" value={form.experience} onChange={e => setForm(f => ({ ...f, experience: e.target.value }))} /></div>
-          <div className="form-group"><label className="form-label">Ranked Points (ELO/Rating)</label><input className="form-input" type="number" min="0" value={form.ranked_points} onChange={e => setForm(f => ({ ...f, ranked_points: e.target.value }))} placeholder="Unesi svoje ranked points..." /></div>
+          <div className="form-group"><label className="form-label">Ranked Points (ELO/Rating)</label><input className="form-input" type="number" min="0" value={form.ranked_points} onChange={e => setForm(f => ({ ...f, ranked_points: e.target.value }))} /></div>
           <div className="form-group"><label className="form-label">Opis profila</label><textarea className="form-input" value={form.bio} onChange={e => setForm(f => ({ ...f, bio: e.target.value }))} placeholder="Nešto o sebi..." /></div>
           <button className="btn btn-primary" onClick={save}>Spremi promjene</button>
         </div>}
@@ -626,9 +884,9 @@ function ProfileTab({ currentUser, bets, matches, loadAll, refreshUser }) {
       <div className="stats-grid mb-16">
         {[
           { val: currentUser.coins?.toLocaleString(), label: "Gold", cls: "" },
+          { val: `${winRate}%`, label: "Win Rate", cls: "green" },
           { val: myBets.length, label: "Klađenja", cls: "" },
-          { val: wonBets.length, label: "Pobjede", cls: "green" },
-          { val: (currentUser.ranked_points || 0).toLocaleString(), label: "Ranked RP", cls: "blue" },
+          { val: bestWin > 0 ? `${bestWin.toLocaleString()} G` : "-", label: "Najbolji dobitak", cls: "blue" },
         ].map(({ val, label, cls }) => (
           <div key={label} className="stat-card"><div className={`stat-val ${cls}`}>{val}</div><div className="stat-label">{label}</div></div>
         ))}
@@ -636,15 +894,17 @@ function ProfileTab({ currentUser, bets, matches, loadAll, refreshUser }) {
 
       <div className="section-header"><h2 className="section-title" style={{ fontSize: "1rem" }}>Povijest klađenja</h2></div>
       <div className="panel"><div className="panel-body">
-        {myBets.length === 0 ? <div className="empty-state" style={{ padding: "32px 0" }}><p>Još nisi postavio nijedan bet.</p></div> : [...myBets].reverse().map(bet => {
-          const match = matches.find(m => m.id === bet.match_id); if (!match) return null;
-          const { oddsA, oddsB } = calcOdds(match.team_a || [], match.team_b || []);
-          const odds = bet.side === "A" ? oddsA : oddsB, finished = match.status === "finished", won = match.winner === bet.side;
-          return <div key={bet.id} className="bet-hist-row">
-            <div><div className="bet-match">{match.title}</div><div className="bet-detail">Tim {bet.side} · {odds}x kvota · {bet.amount} G ulog</div></div>
-            <div className="bet-result">{!finished && <span className="text-muted">U tijeku</span>}{finished && won && <span className="text-green">+{Math.floor(bet.amount * odds)} G ✓</span>}{finished && !won && <span className="text-red">-{bet.amount} G ✗</span>}</div>
-          </div>;
-        })}
+        {myBets.length === 0 ? <div className="empty-state" style={{ padding: "32px 0" }}><p>Još nisi postavio nijedan bet.</p></div>
+          : [...myBets].reverse().map(bet => {
+            const match = matches.find(m => m.id === bet.match_id); if (!match) return null;
+            const { oddsA, oddsB } = calcOdds(match.team_a || [], match.team_b || []);
+            const odds = bet.side === "A" ? oddsA : oddsB, finished = match.status === "finished", won = match.winner === bet.side;
+            return <div key={bet.id} className="bet-hist-row">
+              <div><div className="bet-match">{match.title}</div><div className="bet-detail">Tim {bet.side} · {odds}x kvota · {bet.amount} G ulog</div></div>
+              <div className="bet-result">{!finished && <span className="text-muted">U tijeku</span>}{finished && won && <span className="text-green">+{Math.floor(bet.amount * odds)} G ✓</span>}{finished && !won && <span className="text-red">-{bet.amount} G ✗</span>}</div>
+            </div>;
+          })
+        }
       </div></div>
     </div>
   );

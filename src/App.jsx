@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
 
+// ── Config ───────────────────────────────────────────────────────────────────
+const ADMIN_USERNAME = "admin"; // Promijeni u svoje korisničko ime
+const INITIAL_COINS = 1000;
 const STORAGE_KEYS = {
   users: "aoe2_users",
   currentUser: "aoe2_current_user",
@@ -7,453 +10,482 @@ const STORAGE_KEYS = {
   bets: "aoe2_bets",
 };
 
-const INITIAL_COINS = 1000;
-
-// ── Storage helpers ──────────────────────────────────────────────────────────
-async function sget(key) {
-  try { const r = await window.storage.get(key); return r ? JSON.parse(r.value) : null; }
-  catch { return null; }
+// ── Storage ──────────────────────────────────────────────────────────────────
+function sget(key) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; }
 }
-async function sset(key, val) {
-  try { await window.storage.set(key, JSON.stringify(val)); } catch {}
+function sset(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
 }
 
-// ── Odds calculation ─────────────────────────────────────────────────────────
+// ── Odds ─────────────────────────────────────────────────────────────────────
 function calcOdds(teamA, teamB) {
-  const expA = teamA.reduce((s, u) => s + (u.experience || 0), 0) / teamA.length || 1;
-  const expB = teamB.reduce((s, u) => s + (u.experience || 0), 0) / teamB.length || 1;
+  const expA = Math.max(1, teamA.reduce((s, u) => s + (u.experience || 0), 0) / teamA.length);
+  const expB = Math.max(1, teamB.reduce((s, u) => s + (u.experience || 0), 0) / teamB.length);
   const total = expA + expB;
-  const probA = expA / total;
-  const probB = expB / total;
   return {
-    oddsA: Math.max(1.05, +(1 / probA).toFixed(2)),
-    oddsB: Math.max(1.05, +(1 / probB).toFixed(2)),
+    oddsA: Math.max(1.05, +(1 / (expA / total)).toFixed(2)),
+    oddsB: Math.max(1.05, +(1 / (expB / total)).toFixed(2)),
   };
 }
 
-// ── Admin username (promijeni u svoje) ───────────────────────────────────────
-const ADMIN_USERNAME = "admin";
-
-// ── Icons (SVG inline) ───────────────────────────────────────────────────────
-const SwordIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M6.92 5H5L3 7l1.41 1.42L6 6.83l4.06 4.06-1.26 1.26.36.36L14.27 17l.36.36 1.27-1.27L20 21l2-2-4.93-4.93.35-.35.36.36 4.83-4.83-.36-.36 1.27-1.27-5.17-5.17L17.08 3H15L11.5 6.5z"/>
-  </svg>
-);
-const ShieldIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
-  </svg>
-);
-const CoinIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-    <circle cx="12" cy="12" r="10"/><text x="12" y="16" textAnchor="middle" fontSize="10" fill="#1a1108">G</text>
-  </svg>
-);
-
-// ── Styles ───────────────────────────────────────────────────────────────────
+// ── CSS ──────────────────────────────────────────────────────────────────────
 const css = `
-  @import url('https://fonts.googleapis.com/css2?family=MedievalSharp&family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');
-  
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  
-  :root {
-    --bg: #0d0a05;
-    --bg2: #141008;
-    --bg3: #1c1610;
-    --panel: #1f1a0f;
-    --border: #3d2f18;
-    --gold: #c9a227;
-    --gold2: #e8c84a;
-    --red: #8b1a1a;
-    --red2: #c0392b;
-    --green: #1a5c1a;
-    --green2: #27ae60;
-    --text: #e8d5a3;
-    --text2: #a89060;
-    --accent: #7b3f00;
-  }
-  
-  body { background: var(--bg); color: var(--text); font-family: 'Crimson Text', serif; min-height: 100vh; }
-  
-  .app { min-height: 100vh; display: flex; flex-direction: column; }
-  
-  /* Parchment texture overlay */
-  .app::before {
-    content: '';
-    position: fixed; inset: 0;
-    background-image: 
-      repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(201,162,39,0.015) 2px, rgba(201,162,39,0.015) 4px),
-      repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(201,162,39,0.015) 2px, rgba(201,162,39,0.015) 4px);
-    pointer-events: none; z-index: 0;
-  }
-  
-  /* NAV */
-  nav {
-    background: linear-gradient(180deg, #0a0800 0%, var(--bg2) 100%);
-    border-bottom: 2px solid var(--gold);
-    padding: 0 24px;
-    display: flex; align-items: center; justify-content: space-between;
-    position: relative; z-index: 10;
-    box-shadow: 0 4px 24px rgba(201,162,39,0.2);
-  }
-  .nav-logo {
-    display: flex; align-items: center; gap: 12px;
-    padding: 12px 0;
-  }
-  .nav-logo h1 {
-    font-family: 'Cinzel', serif;
-    font-size: 1.4rem; font-weight: 700;
-    color: var(--gold2);
-    text-shadow: 0 0 20px rgba(201,162,39,0.5);
-    letter-spacing: 2px;
-  }
-  .nav-logo span { font-size: 0.75rem; color: var(--text2); letter-spacing: 3px; display: block; }
-  .nav-right { display: flex; align-items: center; gap: 12px; }
-  .nav-coins {
-    display: flex; align-items: center; gap: 6px;
-    background: rgba(201,162,39,0.1);
-    border: 1px solid var(--border);
-    padding: 6px 14px; border-radius: 4px;
-    font-family: 'Cinzel', serif; font-weight: 600;
-    color: var(--gold2); font-size: 0.9rem;
-  }
-  .nav-user {
-    font-family: 'Cinzel', serif; font-size: 0.85rem;
-    color: var(--text2);
-  }
-  .nav-tabs {
-    display: flex; gap: 4px; margin-left: 32px;
-  }
-  .tab-btn {
-    font-family: 'Cinzel', serif; font-size: 0.8rem;
-    background: none; border: none;
-    color: var(--text2); cursor: pointer;
-    padding: 18px 16px;
-    border-bottom: 3px solid transparent;
-    transition: all 0.2s; letter-spacing: 1px;
-  }
-  .tab-btn:hover { color: var(--gold); }
-  .tab-btn.active { color: var(--gold2); border-bottom-color: var(--gold2); }
-  
-  /* CONTENT */
-  .content { flex: 1; padding: 32px 24px; max-width: 1100px; margin: 0 auto; width: 100%; position: relative; z-index: 1; }
-  
-  /* CARDS */
-  .card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    overflow: hidden;
-    position: relative;
-  }
-  .card::before {
-    content: ''; position: absolute;
-    top: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg, transparent, var(--gold), transparent);
-  }
-  .card-header {
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: space-between;
-  }
-  .card-title {
-    font-family: 'Cinzel', serif; font-weight: 600;
-    color: var(--gold); font-size: 1rem; letter-spacing: 1px;
-  }
-  .card-body { padding: 20px; }
-  
-  /* BUTTONS */
-  .btn {
-    font-family: 'Cinzel', serif; font-size: 0.8rem;
-    cursor: pointer; border: none; border-radius: 4px;
-    padding: 10px 20px; letter-spacing: 1px;
-    transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px;
-  }
-  .btn-gold {
-    background: linear-gradient(135deg, #8b6914 0%, var(--gold) 50%, #8b6914 100%);
-    color: #1a1108; font-weight: 700;
-    box-shadow: 0 2px 12px rgba(201,162,39,0.3);
-  }
-  .btn-gold:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(201,162,39,0.4); }
-  .btn-outline {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text2);
-  }
-  .btn-outline:hover { border-color: var(--gold); color: var(--gold); }
-  .btn-red { background: var(--red); color: var(--text); }
-  .btn-red:hover { background: var(--red2); }
-  .btn-green { background: var(--green); color: var(--text); }
-  .btn-green:hover { background: var(--green2); }
-  .btn-sm { padding: 6px 14px; font-size: 0.75rem; }
-  .btn-full { width: 100%; justify-content: center; }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-  
-  /* INPUTS */
-  .form-group { margin-bottom: 16px; }
-  .form-group label {
-    display: block; margin-bottom: 6px;
-    font-family: 'Cinzel', serif; font-size: 0.75rem;
-    color: var(--text2); letter-spacing: 1px;
-  }
-  .form-control {
-    width: 100%; padding: 10px 14px;
-    background: var(--bg3); border: 1px solid var(--border);
-    color: var(--text); font-family: 'Crimson Text', serif; font-size: 1rem;
-    border-radius: 4px; outline: none;
-    transition: border-color 0.2s;
-  }
-  .form-control:focus { border-color: var(--gold); }
-  .form-control::placeholder { color: var(--text2); opacity: 0.5; }
-  select.form-control option { background: var(--bg3); }
-  
-  /* MATCH CARD */
-  .match-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 6px; padding: 0;
-    overflow: hidden; position: relative;
-    transition: transform 0.2s, box-shadow 0.2s;
-  }
-  .match-card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
-  .match-card::before {
-    content: ''; position: absolute;
-    top: 0; left: 0; right: 0; height: 1px;
-    background: linear-gradient(90deg, transparent, var(--gold), transparent);
-  }
-  .match-header {
-    padding: 12px 16px; display: flex; align-items: center;
-    justify-content: space-between;
-    background: rgba(0,0,0,0.3);
-    border-bottom: 1px solid var(--border);
-  }
-  .match-type {
-    font-family: 'Cinzel', serif; font-size: 0.7rem;
-    background: rgba(201,162,39,0.15);
-    border: 1px solid rgba(201,162,39,0.3);
-    color: var(--gold); padding: 3px 10px; border-radius: 20px;
-    letter-spacing: 2px;
-  }
-  .status-badge {
-    font-family: 'Cinzel', serif; font-size: 0.65rem;
-    padding: 3px 10px; border-radius: 20px; letter-spacing: 1px;
-  }
-  .status-open { background: rgba(26,92,26,0.4); border: 1px solid #27ae60; color: #27ae60; }
-  .status-finished { background: rgba(139,26,26,0.4); border: 1px solid #c0392b; color: #c0392b; }
-  .match-body { padding: 16px; }
-  .match-title { font-family: 'Cinzel', serif; font-size: 1rem; color: var(--text); margin-bottom: 16px; }
-  .versus-row {
-    display: grid; grid-template-columns: 1fr auto 1fr;
-    gap: 12px; align-items: center; margin-bottom: 16px;
-  }
-  .team-side { text-align: center; }
-  .team-label { font-size: 0.7rem; color: var(--text2); letter-spacing: 2px; font-family: 'Cinzel', serif; margin-bottom: 6px; }
-  .team-players { font-size: 0.95rem; color: var(--text); }
-  .team-exp { font-size: 0.75rem; color: var(--text2); margin-top: 4px; }
-  .vs-divider {
-    font-family: 'Cinzel', serif; font-size: 1.2rem;
-    color: var(--gold); text-shadow: 0 0 12px rgba(201,162,39,0.6);
-  }
-  .odds-row {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 8px; margin-bottom: 14px;
-  }
-  .odds-box {
-    background: rgba(0,0,0,0.3); border: 1px solid var(--border);
-    border-radius: 4px; padding: 10px; text-align: center;
-    cursor: pointer; transition: all 0.2s;
-  }
-  .odds-box:hover { border-color: var(--gold); background: rgba(201,162,39,0.08); }
-  .odds-box.selected { border-color: var(--gold2); background: rgba(201,162,39,0.15); }
-  .odds-box.winner-highlight { border-color: var(--green2); background: rgba(26,92,26,0.3); }
-  .odds-label { font-size: 0.65rem; color: var(--text2); font-family: 'Cinzel', serif; letter-spacing: 1px; }
-  .odds-value { font-size: 1.3rem; font-family: 'Cinzel', serif; font-weight: 700; color: var(--gold2); }
-  .bet-row { display: flex; gap: 8px; align-items: center; }
-  .bet-row input { flex: 1; }
-  .winner-crown { color: var(--gold2); font-size: 1rem; }
-  
-  /* GRID */
-  .grid-2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); gap: 20px; }
-  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  
-  /* AUTH */
-  .auth-container { max-width: 440px; margin: 60px auto; }
-  .auth-logo { text-align: center; margin-bottom: 32px; }
-  .auth-logo h2 { font-family: 'Cinzel', serif; font-size: 2rem; color: var(--gold2); text-shadow: 0 0 30px rgba(201,162,39,0.4); letter-spacing: 3px; }
-  .auth-logo p { color: var(--text2); font-style: italic; margin-top: 6px; }
-  .auth-tabs { display: flex; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
-  .auth-tab { flex: 1; padding: 12px; background: none; border: none;
-    font-family: 'Cinzel', serif; color: var(--text2); cursor: pointer;
-    border-bottom: 2px solid transparent; margin-bottom: -1px; font-size: 0.85rem; }
-  .auth-tab.active { color: var(--gold2); border-bottom-color: var(--gold2); }
-  
-  /* PROFILE */
-  .profile-header { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 24px; }
-  .avatar {
-    width: 80px; height: 80px; border-radius: 50%;
-    background: linear-gradient(135deg, var(--accent), var(--border));
-    border: 2px solid var(--gold);
-    display: flex; align-items: center; justify-content: center;
-    font-family: 'Cinzel', serif; font-size: 2rem; color: var(--gold2);
-    flex-shrink: 0;
-  }
-  .profile-info h2 { font-family: 'Cinzel', serif; color: var(--gold2); font-size: 1.4rem; }
-  .profile-info p { color: var(--text2); margin-top: 4px; font-size: 0.9rem; }
-  .stat-box {
-    background: rgba(0,0,0,0.3); border: 1px solid var(--border);
-    border-radius: 6px; padding: 16px; text-align: center;
-  }
-  .stat-val { font-family: 'Cinzel', serif; font-size: 1.8rem; color: var(--gold2); font-weight: 700; }
-  .stat-label { font-size: 0.75rem; color: var(--text2); margin-top: 4px; font-family: 'Cinzel', serif; letter-spacing: 1px; }
-  
-  /* MODAL */
-  .modal-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-    display: flex; align-items: center; justify-content: center; z-index: 100;
-  }
-  .modal { background: var(--panel); border: 1px solid var(--gold); border-radius: 8px; padding: 28px; width: 90%; max-width: 480px; position: relative; }
-  .modal h3 { font-family: 'Cinzel', serif; color: var(--gold); margin-bottom: 20px; font-size: 1.1rem; letter-spacing: 2px; }
-  .modal-close { position: absolute; top: 16px; right: 16px; background: none; border: none; color: var(--text2); cursor: pointer; font-size: 1.2rem; }
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
 
-  /* ALERTS */
-  .alert { padding: 10px 16px; border-radius: 4px; margin-bottom: 16px; font-size: 0.9rem; }
-  .alert-err { background: rgba(139,26,26,0.3); border: 1px solid var(--red2); color: #f5a5a5; }
-  .alert-ok { background: rgba(26,92,26,0.3); border: 1px solid var(--green2); color: #a5f5a5; }
-  
-  /* SECTION TITLE */
-  .section-title {
-    font-family: 'Cinzel', serif; font-size: 1.3rem; font-weight: 700;
-    color: var(--gold2); margin-bottom: 20px;
-    display: flex; align-items: center; gap: 12px;
-  }
-  .section-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
-  
-  .mb-16 { margin-bottom: 16px; }
-  .mb-24 { margin-bottom: 24px; }
-  .text-center { text-align: center; }
-  .text-gold { color: var(--gold2); }
-  .text-muted { color: var(--text2); font-size: 0.85rem; }
-  .flex { display: flex; } .gap-8 { gap: 8px; } .gap-16 { gap: 16px; }
-  .justify-between { justify-content: space-between; }
-  .align-center { align-items: center; }
-  .history-row {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 10px 0; border-bottom: 1px solid rgba(61,47,24,0.5); font-size: 0.9rem;
-  }
-  .history-row:last-child { border-bottom: none; }
-  .win-text { color: var(--green2); font-weight: 600; }
-  .lose-text { color: var(--red2); }
-  
-  @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
-  .match-card { animation: fadeIn 0.3s ease both; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #0b0c10;
+  --bg2:      #12141a;
+  --bg3:      #1a1d27;
+  --surface:  #1e2130;
+  --border:   #2a2f42;
+  --border2:  #353c55;
+  --cyan:     #00d4ff;
+  --cyan2:    #00aacc;
+  --cyan-dim: rgba(0,212,255,0.12);
+  --orange:   #ff6b35;
+  --green:    #00e676;
+  --red:      #ff4444;
+  --text:     #e8eaf0;
+  --text2:    #8890a8;
+  --text3:    #555e77;
+  --radius:   10px;
+  --shadow:   0 8px 32px rgba(0,0,0,0.4);
+}
+
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; line-height: 1.5; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg2); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* ── LAYOUT ── */
+.app { min-height: 100vh; display: flex; flex-direction: column; }
+.page { flex: 1; max-width: 1200px; margin: 0 auto; width: 100%; padding: 28px 20px; }
+
+/* ── NAV ── */
+.nav {
+  background: rgba(11,12,16,0.92);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+  padding: 0 24px;
+}
+.nav-inner {
+  max-width: 1200px; margin: 0 auto;
+  display: flex; align-items: center; gap: 20px; height: 60px;
+}
+.nav-brand {
+  display: flex; align-items: center; gap: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 1.4rem; font-weight: 800; letter-spacing: 1px;
+  color: var(--text); text-decoration: none; flex-shrink: 0;
+}
+.nav-brand span { color: var(--cyan); }
+.nav-tabs { display: flex; gap: 2px; flex: 1; }
+.nav-tab {
+  background: none; border: none; cursor: pointer;
+  font-family: 'DM Sans', sans-serif; font-size: 0.85rem; font-weight: 500;
+  color: var(--text2); padding: 8px 14px; border-radius: 6px;
+  transition: all 0.15s; white-space: nowrap;
+}
+.nav-tab:hover { color: var(--text); background: var(--bg3); }
+.nav-tab.active { color: var(--cyan); background: var(--cyan-dim); }
+.nav-right { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-shrink: 0; }
+.coins-badge {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg3); border: 1px solid var(--border);
+  padding: 6px 12px; border-radius: 20px;
+  font-size: 0.85rem; font-weight: 600; color: var(--cyan);
+}
+.coins-badge svg { flex-shrink: 0; }
+.nav-username { font-size: 0.8rem; color: var(--text2); display: none; }
+.admin-badge {
+  background: linear-gradient(135deg, #ff6b35, #ff4444);
+  color: #fff; font-size: 0.65rem; font-weight: 700;
+  padding: 2px 7px; border-radius: 4px; letter-spacing: 1px;
+}
+.hamburger { display: none; background: none; border: none; cursor: pointer; color: var(--text); padding: 4px; }
+
+/* Mobile nav */
+.mobile-menu {
+  display: none; flex-direction: column; gap: 4px;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+}
+.mobile-menu.open { display: flex; }
+.mobile-tab {
+  background: none; border: none; cursor: pointer;
+  font-family: 'DM Sans', sans-serif; font-size: 0.95rem; font-weight: 500;
+  color: var(--text2); padding: 10px 14px; border-radius: 8px;
+  transition: all 0.15s; text-align: left;
+}
+.mobile-tab:hover { color: var(--text); background: var(--bg3); }
+.mobile-tab.active { color: var(--cyan); background: var(--cyan-dim); }
+
+/* ── BUTTONS ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: 'DM Sans', sans-serif; font-weight: 600;
+  border: none; cursor: pointer; border-radius: 8px;
+  transition: all 0.15s; text-decoration: none; white-space: nowrap;
+  font-size: 0.85rem; padding: 9px 18px;
+}
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary {
+  background: var(--cyan); color: #0b0c10;
+}
+.btn-primary:hover:not(:disabled) { background: #33ddff; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,212,255,0.3); }
+.btn-ghost {
+  background: var(--bg3); color: var(--text2); border: 1px solid var(--border);
+}
+.btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--border2); }
+.btn-danger { background: rgba(255,68,68,0.15); color: var(--red); border: 1px solid rgba(255,68,68,0.3); }
+.btn-danger:hover:not(:disabled) { background: rgba(255,68,68,0.25); }
+.btn-success { background: rgba(0,230,118,0.15); color: var(--green); border: 1px solid rgba(0,230,118,0.3); }
+.btn-success:hover:not(:disabled) { background: rgba(0,230,118,0.25); }
+.btn-sm { padding: 6px 12px; font-size: 0.78rem; border-radius: 6px; }
+.btn-lg { padding: 12px 28px; font-size: 0.95rem; }
+.btn-full { width: 100%; justify-content: center; }
+
+/* ── FORM ── */
+.form-group { margin-bottom: 16px; }
+.form-label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--text2); margin-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase; }
+.form-input {
+  width: 100%; padding: 10px 14px;
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.9rem;
+  border-radius: 8px; outline: none; transition: border-color 0.15s;
+}
+.form-input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(0,212,255,0.08); }
+.form-input::placeholder { color: var(--text3); }
+select.form-input option { background: var(--bg3); }
+textarea.form-input { resize: vertical; min-height: 80px; }
+
+/* ── CARD ── */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+}
+.card-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.card-body { padding: 20px; }
+.card-title { font-family: 'Barlow Condensed', sans-serif; font-size: 1rem; font-weight: 700; letter-spacing: 0.5px; color: var(--text); }
+
+/* ── SECTION HEADER ── */
+.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+.section-title { font-family: 'Barlow Condensed', sans-serif; font-size: 1.5rem; font-weight: 800; letter-spacing: 0.5px; color: var(--text); }
+
+/* ── BADGE ── */
+.badge { display: inline-flex; align-items: center; font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.5px; text-transform: uppercase; }
+.badge-open { background: rgba(0,230,118,0.12); color: var(--green); border: 1px solid rgba(0,230,118,0.25); }
+.badge-finished { background: rgba(136,144,168,0.12); color: var(--text2); border: 1px solid rgba(136,144,168,0.2); }
+.badge-type { background: rgba(0,212,255,0.1); color: var(--cyan); border: 1px solid rgba(0,212,255,0.2); }
+
+/* ── MATCH CARD ── */
+.match-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; }
+.match-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  animation: fadeUp 0.3s ease both;
+}
+.match-card:hover { border-color: var(--border2); box-shadow: var(--shadow); }
+@keyframes fadeUp { from { opacity:0; transform: translateY(12px); } to { opacity:1; transform: none; } }
+
+.match-card-head {
+  padding: 12px 16px; display: flex; align-items: center;
+  justify-content: space-between; gap: 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg3);
+}
+.match-card-title { font-family: 'Barlow Condensed', sans-serif; font-size: 1.05rem; font-weight: 700; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.match-card-body { padding: 16px; }
+
+.versus { display: grid; grid-template-columns: 1fr 40px 1fr; gap: 8px; align-items: center; margin-bottom: 16px; }
+.team { text-align: center; }
+.team-name { font-weight: 600; font-size: 0.9rem; color: var(--text); margin-bottom: 2px; }
+.team-exp { font-size: 0.72rem; color: var(--text3); }
+.vs-text { text-align: center; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 1.1rem; color: var(--border2); }
+
+.odds-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.odds-btn {
+  padding: 10px; border-radius: 8px; text-align: center; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg3);
+  transition: all 0.15s;
+}
+.odds-btn:hover { border-color: var(--cyan); background: var(--cyan-dim); }
+.odds-btn.selected { border-color: var(--cyan); background: var(--cyan-dim); }
+.odds-btn.winner { border-color: var(--green); background: rgba(0,230,118,0.08); }
+.odds-btn.loser { border-color: var(--border); background: var(--bg3); opacity: 0.5; }
+.odds-label { font-size: 0.65rem; font-weight: 600; color: var(--text2); letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 4px; }
+.odds-value { font-family: 'Barlow Condensed', sans-serif; font-size: 1.5rem; font-weight: 700; color: var(--cyan); }
+.odds-btn.winner .odds-value { color: var(--green); }
+
+.bet-input-row { display: flex; gap: 8px; }
+.bet-input-row .form-input { flex: 1; }
+
+.match-footer { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--bg3); flex-wrap: wrap; gap: 8px; }
+.match-footer-stat { font-size: 0.72rem; color: var(--text3); }
+
+/* ── ALERT ── */
+.alert { padding: 10px 14px; border-radius: 8px; font-size: 0.85rem; margin-top: 10px; }
+.alert-err { background: rgba(255,68,68,0.1); border: 1px solid rgba(255,68,68,0.2); color: #ff8888; }
+.alert-ok { background: rgba(0,230,118,0.1); border: 1px solid rgba(0,230,118,0.2); color: var(--green); }
+
+/* ── FILTER BAR ── */
+.filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 20px; }
+.filter-btn {
+  background: var(--bg3); border: 1px solid var(--border); color: var(--text2);
+  font-family: 'DM Sans', sans-serif; font-size: 0.8rem; font-weight: 500;
+  padding: 6px 14px; border-radius: 20px; cursor: pointer; transition: all 0.15s;
+}
+.filter-btn:hover { color: var(--text); border-color: var(--border2); }
+.filter-btn.active { background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan); }
+
+/* ── MODAL ── */
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 20px; }
+.modal { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 0; margin-bottom: 20px; }
+.modal-title { font-family: 'Barlow Condensed', sans-serif; font-size: 1.3rem; font-weight: 800; color: var(--text); }
+.modal-close { background: var(--bg3); border: 1px solid var(--border); color: var(--text2); width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 0 24px 24px; }
+.modal-hint { font-size: 0.78rem; color: var(--text3); margin-bottom: 16px; line-height: 1.5; }
+
+/* ── AUTH ── */
+.auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--bg); }
+.auth-box { width: 100%; max-width: 400px; }
+.auth-logo { text-align: center; margin-bottom: 32px; }
+.auth-logo h1 { font-family: 'Barlow Condensed', sans-serif; font-size: 2.5rem; font-weight: 800; letter-spacing: 1px; color: var(--text); }
+.auth-logo h1 span { color: var(--cyan); }
+.auth-logo p { color: var(--text2); font-size: 0.9rem; margin-top: 4px; }
+.auth-tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+.auth-tab { flex: 1; padding: 12px; background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; font-family: 'DM Sans', sans-serif; font-size: 0.85rem; font-weight: 600; color: var(--text2); cursor: pointer; transition: all 0.15s; }
+.auth-tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+.auth-footer { text-align: center; margin-top: 12px; font-size: 0.8rem; color: var(--text3); }
+
+/* ── LEADERBOARD ── */
+.lb-row { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.lb-row:last-child { border-bottom: none; }
+.lb-rank { font-family: 'Barlow Condensed', sans-serif; font-size: 1.2rem; font-weight: 800; width: 36px; text-align: center; flex-shrink: 0; }
+.lb-avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--bg3); border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; font-family: 'Barlow Condensed', sans-serif; font-size: 1.1rem; font-weight: 700; flex-shrink: 0; }
+.lb-info { flex: 1; min-width: 0; }
+.lb-name { font-weight: 600; font-size: 0.9rem; color: var(--text); }
+.lb-sub { font-size: 0.75rem; color: var(--text3); margin-top: 1px; }
+.lb-coins { font-family: 'Barlow Condensed', sans-serif; font-size: 1.1rem; font-weight: 700; color: var(--cyan); white-space: nowrap; }
+
+/* ── PROFILE ── */
+.profile-hero { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+.profile-avatar { width: 72px; height: 72px; border-radius: 50%; background: linear-gradient(135deg, var(--cyan2), var(--bg3)); border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; font-family: 'Barlow Condensed', sans-serif; font-size: 2rem; font-weight: 800; color: var(--cyan); flex-shrink: 0; }
+.profile-info { flex: 1; min-width: 0; }
+.profile-name { font-family: 'Barlow Condensed', sans-serif; font-size: 1.6rem; font-weight: 800; color: var(--text); }
+.profile-bio { font-size: 0.85rem; color: var(--text2); margin-top: 4px; }
+.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+.stat-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center; }
+.stat-val { font-family: 'Barlow Condensed', sans-serif; font-size: 1.8rem; font-weight: 800; color: var(--cyan); }
+.stat-val.green { color: var(--green); }
+.stat-label { font-size: 0.7rem; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+
+/* ── BET HISTORY ── */
+.bet-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.bet-row:last-child { border-bottom: none; }
+.bet-match { font-weight: 600; font-size: 0.85rem; color: var(--text); }
+.bet-detail { font-size: 0.75rem; color: var(--text3); margin-top: 2px; }
+.bet-result { font-weight: 700; font-size: 0.85rem; white-space: nowrap; }
+.text-green { color: var(--green); }
+.text-red { color: var(--red); }
+.text-muted { color: var(--text2); }
+
+/* ── ADMIN PANEL ── */
+.admin-bar { background: linear-gradient(135deg, rgba(255,107,53,0.1), rgba(255,68,68,0.08)); border: 1px solid rgba(255,107,53,0.25); border-radius: 10px; padding: 14px 18px; margin-bottom: 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.admin-bar-text { flex: 1; font-size: 0.85rem; color: var(--orange); font-weight: 500; }
+.admin-bar-text strong { display: block; font-family: 'Barlow Condensed', sans-serif; font-size: 1rem; letter-spacing: 0.5px; }
+
+/* ── RESOLVE SECTION ── */
+.resolve-section { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: var(--bg3); border-top: 1px solid var(--border); flex-wrap: wrap; }
+.resolve-label { font-size: 0.75rem; color: var(--text3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; }
+
+/* ── EMPTY STATE ── */
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text3); }
+.empty-state svg { margin-bottom: 16px; opacity: 0.4; }
+.empty-state h3 { font-family: 'Barlow Condensed', sans-serif; font-size: 1.2rem; font-weight: 700; color: var(--text2); margin-bottom: 6px; }
+.empty-state p { font-size: 0.85rem; }
+
+/* ── DIVIDER ── */
+.divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 768px) {
+  .nav-tabs { display: none; }
+  .nav-username { display: none; }
+  .hamburger { display: flex; }
+  .coins-badge span { display: none; }
+  .match-grid { grid-template-columns: 1fr; }
+  .stats-grid { grid-template-columns: repeat(3, 1fr); }
+  .page { padding: 20px 16px; }
+}
+@media (max-width: 480px) {
+  .stats-grid { grid-template-columns: 1fr 1fr; }
+  .section-header { flex-direction: column; align-items: flex-start; }
+  .auth-box { padding: 0 4px; }
+  .modal-head, .modal-body { padding-left: 18px; padding-right: 18px; }
+}
+
+/* ── UTILS ── */
+.flex { display: flex; }
+.items-center { align-items: center; }
+.gap-8 { gap: 8px; }
+.gap-12 { gap: 12px; }
+.mb-8 { margin-bottom: 8px; }
+.mb-16 { margin-bottom: 16px; }
+.mt-12 { margin-top: 12px; }
 `;
 
-// ── Main App ─────────────────────────────────────────────────────────────────
+// ── Icons ─────────────────────────────────────────────────────────────────────
+const IconCoin = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <circle cx="12" cy="12" r="10"/><path d="M12 6v12M9 9h4.5a2.5 2.5 0 0 1 0 5H9"/>
+  </svg>
+);
+const IconSword = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M14.5 17.5L3 6V3h3l11.5 11.5M13 19l-2 2-3-3 2-2M15 7l3-3 3 3-9.5 9.5"/>
+  </svg>
+);
+const IconMenu = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+  </svg>
+);
+const IconX = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+  </svg>
+);
+const IconPlus = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+);
+const IconTrophy = () => (
+  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <path d="M6 9H4a2 2 0 0 1-2-2V5h4M18 9h2a2 2 0 0 0 2-2V5h-4M6 9v6a6 6 0 0 0 12 0V9M6 9h12M9 21h6M12 21v-6"/>
+  </svg>
+);
+
+// ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [users, setUsers] = useState({});
   const [matches, setMatches] = useState([]);
   const [bets, setBets] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [tab, setTab] = useState("matches");
-  const [authTab, setAuthTab] = useState("login");
+  const [authMode, setAuthMode] = useState("login");
   const [loading, setLoading] = useState(true);
   const [showNewMatch, setShowNewMatch] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Load from storage
   useEffect(() => {
-    (async () => {
-      const u = await sget(STORAGE_KEYS.users);
-      const cu = await sget(STORAGE_KEYS.currentUser);
-      const m = await sget(STORAGE_KEYS.matches);
-      const b = await sget(STORAGE_KEYS.bets);
-      setUsers(u || {});
-      setCurrentUser(cu || null);
-      setMatches(m || []);
-      setBets(b || []);
-      setLoading(false);
-    })();
+    setUsers(sget(STORAGE_KEYS.users) || {});
+    setCurrentUser(sget(STORAGE_KEYS.currentUser) || null);
+    setMatches(sget(STORAGE_KEYS.matches) || []);
+    setBets(sget(STORAGE_KEYS.bets) || []);
+    setLoading(false);
   }, []);
 
-  const saveUsers = async (u) => { setUsers(u); await sset(STORAGE_KEYS.users, u); };
-  const saveMatches = async (m) => { setMatches(m); await sset(STORAGE_KEYS.matches, m); };
-  const saveBets = async (b) => { setBets(b); await sset(STORAGE_KEYS.bets, b); };
-  const saveCurrentUser = async (u) => { setCurrentUser(u); await sset(STORAGE_KEYS.currentUser, u); };
+  const saveUsers = (u) => { setUsers(u); sset(STORAGE_KEYS.users, u); };
+  const saveMatches = (m) => { setMatches(m); sset(STORAGE_KEYS.matches, m); };
+  const saveBets = (b) => { setBets(b); sset(STORAGE_KEYS.bets, b); };
+  const saveCurrentUser = (u) => { setCurrentUser(u); sset(STORAGE_KEYS.currentUser, u); };
 
-  const updateUser = async (updated) => {
-    const newUsers = { ...users, [updated.username]: updated };
-    await saveUsers(newUsers);
-    await saveCurrentUser(updated);
+  const updateUser = (updated) => {
+    const nu = { ...users, [updated.username]: updated };
+    saveUsers(nu); saveCurrentUser(updated);
   };
 
-  const placeBet = async (matchId, side, amount) => {
+  const placeBet = (matchId, side, amount) => {
     if (!currentUser || amount <= 0 || currentUser.coins < amount) return false;
-    const existing = bets.find(b => b.matchId === matchId && b.username === currentUser.username);
-    if (existing) return false;
-    const newBet = { id: `b${Date.now()}`, matchId, username: currentUser.username, side, amount };
-    await saveBets([...bets, newBet]);
+    if (bets.find(b => b.matchId === matchId && b.username === currentUser.username)) return false;
+    const nb = [...bets, { id: `b${Date.now()}`, matchId, username: currentUser.username, side, amount }];
+    saveBets(nb);
     const updated = { ...currentUser, coins: currentUser.coins - amount };
-    await updateUser(updated);
+    updateUser(updated);
     return true;
   };
 
-  const resolveMatch = async (matchId, winner) => {
+  const resolveMatch = (matchId, winner) => {
     const match = matches.find(m => m.id === matchId);
     if (!match) return;
     const { oddsA, oddsB } = calcOdds(match.teamA, match.teamB);
-    const matchBets = bets.filter(b => b.matchId === matchId);
     const updatedUsers = { ...users };
-    for (const bet of matchBets) {
-      const won = bet.side === winner;
-      if (won) {
-        const odds = winner === "A" ? oddsA : oddsB;
-        const winnings = Math.floor(bet.amount * odds);
-        if (updatedUsers[bet.username]) {
-          updatedUsers[bet.username] = { ...updatedUsers[bet.username], coins: updatedUsers[bet.username].coins + winnings };
-        }
+    bets.filter(b => b.matchId === matchId && b.side === winner).forEach(bet => {
+      const odds = winner === "A" ? oddsA : oddsB;
+      if (updatedUsers[bet.username]) {
+        updatedUsers[bet.username] = { ...updatedUsers[bet.username], coins: updatedUsers[bet.username].coins + Math.floor(bet.amount * odds) };
       }
-    }
-    await saveUsers(updatedUsers);
-    if (currentUser && updatedUsers[currentUser.username]) {
-      await saveCurrentUser(updatedUsers[currentUser.username]);
-    }
-    const updatedMatches = matches.map(m => m.id === matchId ? { ...m, status: "finished", winner } : m);
-    await saveMatches(updatedMatches);
+    });
+    saveUsers(updatedUsers);
+    if (currentUser && updatedUsers[currentUser.username]) saveCurrentUser(updatedUsers[currentUser.username]);
+    saveMatches(matches.map(m => m.id === matchId ? { ...m, status: "finished", winner } : m));
   };
 
+  const logout = () => { setCurrentUser(null); sset(STORAGE_KEYS.currentUser, null); setTab("matches"); };
+
+  const isAdmin = currentUser?.username === ADMIN_USERNAME;
+
+  const navTo = (t) => { setTab(t); setMobileOpen(false); };
+
   if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#0d0a05" }}>
-      <div style={{ fontFamily: "'Cinzel', serif", color: "#c9a227", fontSize: "1.2rem", letterSpacing: "3px" }}>LOADING REALM...</div>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0b0c10" }}>
+      <style>{css}</style>
+      <div style={{ fontFamily: "'Barlow Condensed', sans-serif", color: "var(--cyan)", fontSize: "1.2rem", letterSpacing: "3px" }}>LOADING...</div>
     </div>
   );
 
-  if (!currentUser) return <AuthScreen authTab={authTab} setAuthTab={setAuthTab} users={users} saveUsers={saveUsers} saveCurrentUser={saveCurrentUser} />;
+  if (!currentUser) return (
+    <div className="auth-wrap">
+      <style>{css}</style>
+      <AuthScreen mode={authMode} setMode={setAuthMode} users={users} saveUsers={saveUsers} saveCurrentUser={saveCurrentUser} />
+    </div>
+  );
+
+  const tabs = [
+    { id: "matches", label: "Mečevi" },
+    { id: "leaderboard", label: "Ljestvica" },
+    { id: "profile", label: "Profil" },
+  ];
 
   return (
     <div className="app">
       <style>{css}</style>
-      <nav>
-        <div className="nav-logo">
-          <div>
-            <h1>⚔ AoE2 ARENA</h1>
-            <span>VIRTUAL BETTING GROUNDS</span>
-          </div>
+      <nav className="nav">
+        <div className="nav-inner">
+          <div className="nav-brand"><IconSword /><span>AoE2</span> ARENA</div>
           <div className="nav-tabs">
-            {["matches", "leaderboard", "profile"].map(t => (
-              <button key={t} className={`tab-btn ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>
-                {t.toUpperCase()}
-              </button>
-            ))}
+            {tabs.map(t => <button key={t.id} className={`nav-tab ${tab === t.id ? "active" : ""}`} onClick={() => navTo(t.id)}>{t.label}</button>)}
           </div>
-        </div>
-        <div className="nav-right">
-          <div className="nav-coins"><CoinIcon />{currentUser.coins.toLocaleString()} Gold</div>
-          <div className="nav-user">{currentUser.username}</div>
-          <button className="btn btn-outline btn-sm" onClick={() => { setCurrentUser(null); sset(STORAGE_KEYS.currentUser, null); }}>LOGOUT</button>
+          <div className="nav-right">
+            <div className="coins-badge"><IconCoin /><span>{currentUser.coins.toLocaleString()} G</span></div>
+            {isAdmin && <span className="admin-badge">ADMIN</span>}
+            <div className="nav-username">{currentUser.username}</div>
+            <button className="btn btn-ghost btn-sm" onClick={logout}>Odjava</button>
+            <button className="hamburger" onClick={() => setMobileOpen(o => !o)}><IconMenu /></button>
+          </div>
         </div>
       </nav>
-      <div className="content">
-        {tab === "matches" && <MatchesTab matches={matches} bets={bets} currentUser={currentUser} placeBet={placeBet} resolveMatch={resolveMatch} showNewMatch={showNewMatch} setShowNewMatch={setShowNewMatch} saveMatches={saveMatches} users={users} isAdmin={currentUser.username === ADMIN_USERNAME} />}
+      <div className={`mobile-menu ${mobileOpen ? "open" : ""}`}>
+        {tabs.map(t => <button key={t.id} className={`mobile-tab ${tab === t.id ? "active" : ""}`} onClick={() => navTo(t.id)}>{t.label}</button>)}
+        <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: "0.8rem", color: "var(--text2)" }}>{currentUser.username}</span>
+          <button className="btn btn-ghost btn-sm" onClick={logout}>Odjava</button>
+        </div>
+      </div>
+      <div className="page">
+        {tab === "matches" && <MatchesTab matches={matches} bets={bets} currentUser={currentUser} placeBet={placeBet} resolveMatch={resolveMatch} isAdmin={isAdmin} showNewMatch={showNewMatch} setShowNewMatch={setShowNewMatch} saveMatches={saveMatches} users={users} />}
         {tab === "leaderboard" && <LeaderboardTab users={users} />}
         {tab === "profile" && <ProfileTab currentUser={currentUser} bets={bets} matches={matches} updateUser={updateUser} />}
       </div>
@@ -461,382 +493,386 @@ export default function App() {
   );
 }
 
-// ── Auth Screen ──────────────────────────────────────────────────────────────
-function AuthScreen({ authTab, setAuthTab, users, saveUsers, saveCurrentUser }) {
+// ── Auth ──────────────────────────────────────────────────────────────────────
+function AuthScreen({ mode, setMode, users, saveUsers, saveCurrentUser }) {
   const [form, setForm] = useState({ username: "", password: "", experience: "" });
   const [err, setErr] = useState("");
 
-  const handle = async (e) => {
+  const submit = (e) => {
     e.preventDefault(); setErr("");
-    if (authTab === "register") {
-      if (!form.username || !form.password) return setErr("Popuni sva polja.");
+    if (mode === "register") {
+      if (!form.username.trim() || !form.password) return setErr("Popuni sva polja.");
       if (users[form.username]) return setErr("Korisničko ime već postoji.");
-      const newUser = { username: form.username, password: form.password, experience: parseInt(form.experience) || 0, coins: INITIAL_COINS, joined: Date.now() };
-      const updated = { ...users, [form.username]: newUser };
-      await saveUsers(updated);
-      await saveCurrentUser(newUser);
+      const nu = { username: form.username.trim(), password: form.password, experience: parseInt(form.experience) || 0, coins: INITIAL_COINS, joined: Date.now() };
+      saveUsers({ ...users, [nu.username]: nu });
+      saveCurrentUser(nu);
     } else {
       const u = users[form.username];
-      if (!u || u.password !== form.password) return setErr("Pogrešni podaci.");
-      await saveCurrentUser(u);
+      if (!u || u.password !== form.password) return setErr("Pogrešno korisničko ime ili lozinka.");
+      saveCurrentUser(u);
     }
   };
 
   return (
-    <div className="app">
-      <style>{css}</style>
-      <div className="content">
-        <div className="auth-container">
-          <div className="auth-logo">
-            <h2>⚔ AoE2 ARENA</h2>
-            <p>Kladi se na pobjednike Doba Carstva</p>
+    <div className="auth-box">
+      <div className="auth-logo">
+        <h1><span>AoE2</span> ARENA</h1>
+        <p>Virtualna kladionica za Age of Empires 2</p>
+      </div>
+      <div className="card">
+        <div className="card-body">
+          <div className="auth-tabs">
+            {[["login","Prijava"],["register","Registracija"]].map(([m, l]) => (
+              <button key={m} className={`auth-tab ${mode === m ? "active" : ""}`} onClick={() => { setMode(m); setErr(""); }}>{l}</button>
+            ))}
           </div>
-          <div className="card">
-            <div className="card-body">
-              <div className="auth-tabs">
-                {["login", "register"].map(t => (
-                  <button key={t} className={`auth-tab ${authTab === t ? "active" : ""}`} onClick={() => { setAuthTab(t); setErr(""); }}>
-                    {t === "login" ? "PRIJAVA" : "REGISTRACIJA"}
-                  </button>
-                ))}
-              </div>
-              {err && <div className="alert alert-err">{err}</div>}
-              <form onSubmit={handle}>
-                <div className="form-group">
-                  <label>KORISNIČKO IME</label>
-                  <input className="form-control" value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} placeholder="Vitez..." />
-                </div>
-                <div className="form-group">
-                  <label>LOZINKA</label>
-                  <input className="form-control" type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="••••••••" />
-                </div>
-                {authTab === "register" && (
-                  <div className="form-group">
-                    <label>GODINE ISKUSTVA U AoE2</label>
-                    <input className="form-control" type="number" min="0" max="30" value={form.experience} onChange={e => setForm(f => ({ ...f, experience: e.target.value }))} placeholder="0" />
-                  </div>
-                )}
-                <button className="btn btn-gold btn-full" type="submit">
-                  {authTab === "login" ? "ULAZ NA ARENA" : "REGISTRIRAJ SE"}
-                </button>
-                {authTab === "register" && <p className="text-muted text-center" style={{ marginTop: 12 }}>Dobivate {INITIAL_COINS.toLocaleString()} Gold za početak!</p>}
-              </form>
+          {err && <div className="alert alert-err mb-16">{err}</div>}
+          <form onSubmit={submit}>
+            <div className="form-group">
+              <label className="form-label">Korisničko ime</label>
+              <input className="form-input" value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} placeholder="Unesi korisničko ime..." />
             </div>
-          </div>
+            <div className="form-group">
+              <label className="form-label">Lozinka</label>
+              <input className="form-input" type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="••••••••" />
+            </div>
+            {mode === "register" && (
+              <div className="form-group">
+                <label className="form-label">Godine iskustva u AoE2</label>
+                <input className="form-input" type="number" min="0" max="30" value={form.experience} onChange={e => setForm(f => ({ ...f, experience: e.target.value }))} placeholder="0" />
+              </div>
+            )}
+            <button className="btn btn-primary btn-lg btn-full" type="submit">
+              {mode === "login" ? "Prijavi se" : "Registriraj se"}
+            </button>
+          </form>
+          {mode === "register" && <p className="auth-footer">Dobivate {INITIAL_COINS.toLocaleString()} Gold za početak! 🪙</p>}
         </div>
       </div>
     </div>
   );
 }
 
-// ── Matches Tab ──────────────────────────────────────────────────────────────
-function MatchesTab({ matches, bets, currentUser, placeBet, resolveMatch, showNewMatch, setShowNewMatch, saveMatches, users, isAdmin }) {
-  const [filter, setFilter] = useState("all");
+// ── Matches ───────────────────────────────────────────────────────────────────
+function MatchesTab({ matches, bets, currentUser, placeBet, resolveMatch, isAdmin, showNewMatch, setShowNewMatch, saveMatches, users }) {
+  const [filter, setFilter] = useState("sve");
   const [betInputs, setBetInputs] = useState({});
   const [selectedSide, setSelectedSide] = useState({});
   const [msg, setMsg] = useState({});
 
-  const filtered = matches.filter(m => filter === "all" || m.type === filter || (filter === "open" && m.status === "open") || (filter === "finished" && m.status === "finished"));
+  const filters = ["sve", "otvoreno", "završeno", "1v1", "2v2", "1v2", "3v3"];
+  const filtered = matches.filter(m => {
+    if (filter === "sve") return true;
+    if (filter === "otvoreno") return m.status === "open";
+    if (filter === "završeno") return m.status === "finished";
+    return m.type === filter;
+  });
 
-  const handleBet = async (matchId) => {
+  const myBet = (matchId) => bets.find(b => b.matchId === matchId && b.username === currentUser.username);
+
+  const handleBet = (matchId) => {
     const side = selectedSide[matchId];
     const amount = parseInt(betInputs[matchId] || 0);
-    if (!side) return setMsg(m => ({ ...m, [matchId]: "Odaberi tim!" }));
-    if (!amount || amount < 1) return setMsg(m => ({ ...m, [matchId]: "Unesi iznos klađenja." }));
-    if (amount > currentUser.coins) return setMsg(m => ({ ...m, [matchId]: "Nedovoljan iznos Golda." }));
-    const ok = await placeBet(matchId, side, amount);
-    setMsg(m => ({ ...m, [matchId]: ok ? "✓ Bet uspješno postavljen!" : "Već si se kladio na ovaj meč." }));
+    if (!side) return setMsg(m => ({ ...m, [matchId]: { type: "err", text: "Odaberi tim prije klađenja." } }));
+    if (!amount || amount < 1) return setMsg(m => ({ ...m, [matchId]: { type: "err", text: "Unesi iznos klađenja." } }));
+    if (amount > currentUser.coins) return setMsg(m => ({ ...m, [matchId]: { type: "err", text: "Nedovoljno Golda." } }));
+    const ok = placeBet(matchId, side, amount);
+    setMsg(m => ({ ...m, [matchId]: ok ? { type: "ok", text: `✓ Kladio si ${amount} G na Tim ${side}!` } : { type: "err", text: "Već si se kladio na ovaj meč." } }));
+    if (ok) setBetInputs(b => ({ ...b, [matchId]: "" }));
   };
-
-  const userBet = (matchId) => bets.find(b => b.matchId === matchId && b.username === currentUser.username);
 
   return (
     <div>
-      <div className="flex justify-between align-center mb-24">
-        <h2 className="section-title">MEČEVI</h2>
-        {isAdmin && <button className="btn btn-gold" onClick={() => setShowNewMatch(true)}>+ NOVI MEČ</button>}
+      <style>{css}</style>
+      {isAdmin && (
+        <div className="admin-bar">
+          <div className="admin-bar-text"><strong>⚡ Admin Panel</strong>Prijavljen si kao administrator.</div>
+          <button className="btn btn-primary" onClick={() => setShowNewMatch(true)}><IconPlus /> Novi meč</button>
+        </div>
+      )}
+      <div className="section-header">
+        <h2 className="section-title">Mečevi</h2>
+        <span style={{ fontSize: "0.8rem", color: "var(--text3)" }}>{filtered.length} mečeva</span>
       </div>
-      <div className="flex gap-8 mb-16">
-        {["all","open","finished","1v1","2v2","1v2"].map(f => (
-          <button key={f} className={`btn ${filter === f ? "btn-gold" : "btn-outline"} btn-sm`} onClick={() => setFilter(f)}>{f.toUpperCase()}</button>
+      <div className="filter-bar">
+        {filters.map(f => (
+          <button key={f} className={`filter-btn ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>{f.toUpperCase()}</button>
         ))}
       </div>
-      <div className="grid-2">
-        {filtered.sort((a,b) => b.createdAt - a.createdAt).map((match, i) => {
-          const { oddsA, oddsB } = calcOdds(match.teamA, match.teamB);
-          const myBet = userBet(match.id);
-          return (
-            <div key={match.id} className="match-card" style={{ animationDelay: `${i * 0.05}s` }}>
-              <div className="match-header">
-                <span className="match-type">{match.type.toUpperCase()}</span>
-                <span className={`status-badge status-${match.status}`}>{match.status === "open" ? "OTVORENO" : "ZAVRŠENO"}</span>
-              </div>
-              <div className="match-body">
-                <div className="match-title">{match.title}</div>
-                <div className="versus-row">
-                  <div className="team-side">
-                    <div className="team-label">TIM A</div>
-                    <div className="team-players">{match.teamA.map(p => p.username).join(" & ")}</div>
-                    <div className="team-exp">{match.teamA.map(p => `${p.experience || 0}g`).join(" & ")} iskustvo</div>
-                  </div>
-                  <div className="vs-divider">VS</div>
-                  <div className="team-side">
-                    <div className="team-label">TIM B</div>
-                    <div className="team-players">{match.teamB.map(p => p.username).join(" & ")}</div>
-                    <div className="team-exp">{match.teamB.map(p => `${p.experience || 0}g`).join(" & ")} iskustvo</div>
+      {filtered.length === 0 ? (
+        <div className="empty-state"><IconTrophy /><h3>Nema mečeva</h3><p>Ovdje će se prikazati mečevi kada budu dodani.</p></div>
+      ) : (
+        <div className="match-grid">
+          {[...filtered].sort((a, b) => b.createdAt - a.createdAt).map((match, i) => {
+            const { oddsA, oddsB } = calcOdds(match.teamA, match.teamB);
+            const bet = myBet(match.id);
+            const matchBets = bets.filter(b => b.matchId === match.id);
+            const pool = matchBets.reduce((s, b) => s + b.amount, 0);
+            return (
+              <div key={match.id} className="match-card" style={{ animationDelay: `${i * 0.04}s` }}>
+                <div className="match-card-head">
+                  <div className="match-card-title">{match.title}</div>
+                  <div className="flex gap-8">
+                    <span className="badge badge-type">{match.type}</span>
+                    <span className={`badge ${match.status === "open" ? "badge-open" : "badge-finished"}`}>
+                      {match.status === "open" ? "LIVE" : "ZAVRŠENO"}
+                    </span>
                   </div>
                 </div>
-                <div className="odds-row">
-                  <div className={`odds-box ${selectedSide[match.id] === "A" ? "selected" : ""} ${match.winner === "A" ? "winner-highlight" : ""}`}
-                    onClick={() => match.status === "open" && !myBet && setSelectedSide(s => ({ ...s, [match.id]: "A" }))}>
-                    <div className="odds-label">TIM A POBJEDI</div>
-                    <div className="odds-value">{oddsA}x {match.winner === "A" && <span className="winner-crown">👑</span>}</div>
-                  </div>
-                  <div className={`odds-box ${selectedSide[match.id] === "B" ? "selected" : ""} ${match.winner === "B" ? "winner-highlight" : ""}`}
-                    onClick={() => match.status === "open" && !myBet && setSelectedSide(s => ({ ...s, [match.id]: "B" }))}>
-                    <div className="odds-label">TIM B POBJEDI</div>
-                    <div className="odds-value">{oddsB}x {match.winner === "B" && <span className="winner-crown">👑</span>}</div>
-                  </div>
-                </div>
-
-                {match.status === "open" && (
-                  myBet ? (
-                    <div className="alert alert-ok" style={{ marginBottom: 0 }}>
-                      ✓ Kladio si {myBet.amount} G na Tim {myBet.side}
+                <div className="match-card-body">
+                  <div className="versus">
+                    <div className="team">
+                      <div className="team-name">{match.teamA.map(p => p.username).join(" & ")}</div>
+                      <div className="team-exp">{match.teamA.map(p => `${p.experience || 0}g`).join(" & ")} iskustvo</div>
                     </div>
-                  ) : (
-                    <>
-                      <div className="bet-row">
-                        <input className="form-control" type="number" min="1" max={currentUser.coins}
-                          placeholder="Iznos klađenja (Gold)"
-                          value={betInputs[match.id] || ""}
-                          onChange={e => setBetInputs(b => ({ ...b, [match.id]: e.target.value }))} />
-                        <button className="btn btn-gold btn-sm" onClick={() => handleBet(match.id)}>KLADITI</button>
+                    <div className="vs-text">VS</div>
+                    <div className="team">
+                      <div className="team-name">{match.teamB.map(p => p.username).join(" & ")}</div>
+                      <div className="team-exp">{match.teamB.map(p => `${p.experience || 0}g`).join(" & ")} iskustvo</div>
+                    </div>
+                  </div>
+
+                  <div className="odds-grid">
+                    {[["A", oddsA, match.teamA], ["B", oddsB, match.teamB]].map(([side, odds, team]) => {
+                      const isWinner = match.winner === side;
+                      const isLoser = match.status === "finished" && match.winner && match.winner !== side;
+                      return (
+                        <div key={side}
+                          className={`odds-btn ${selectedSide[match.id] === side ? "selected" : ""} ${isWinner ? "winner" : ""} ${isLoser ? "loser" : ""}`}
+                          onClick={() => match.status === "open" && !bet && setSelectedSide(s => ({ ...s, [match.id]: side }))}>
+                          <div className="odds-label">Tim {side} {isWinner ? "👑" : ""}</div>
+                          <div className="odds-value">{odds}x</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {match.status === "open" && (
+                    bet ? (
+                      <div className="alert alert-ok">✓ Kladio si {bet.amount} G na Tim {bet.side}</div>
+                    ) : (
+                      <div>
+                        <div className="bet-input-row">
+                          <input className="form-input" type="number" min="1" max={currentUser.coins}
+                            placeholder="Iznos (Gold)..."
+                            value={betInputs[match.id] || ""}
+                            onChange={e => setBetInputs(b => ({ ...b, [match.id]: e.target.value }))} />
+                          <button className="btn btn-primary" onClick={() => handleBet(match.id)}>Kladiti</button>
+                        </div>
+                        {msg[match.id] && <div className={`alert ${msg[match.id].type === "ok" ? "alert-ok" : "alert-err"}`}>{msg[match.id].text}</div>}
                       </div>
-                      {msg[match.id] && <div className={`alert ${msg[match.id].startsWith("✓") ? "alert-ok" : "alert-err"}`} style={{ marginTop: 8, marginBottom: 0 }}>{msg[match.id]}</div>}
-                    </>
-                  )
-                )}
+                    )
+                  )}
+
+                  {match.status === "finished" && (
+                    <div style={{ fontSize: "0.82rem", color: "var(--text3)", marginTop: 8 }}>
+                      Pobijedio: <span style={{ color: "var(--green)", fontWeight: 600 }}>Tim {match.winner}</span>
+                      {bet && <span style={{ marginLeft: 8 }}>• Tvoj bet: Tim {bet.side} {bet.side === match.winner ? <span className="text-green">✓ Dobio</span> : <span className="text-red">✗ Izgubio</span>}</span>}
+                    </div>
+                  )}
+                </div>
 
                 {isAdmin && match.status === "open" && (
-                  <div className="flex gap-8" style={{ marginTop: 12 }}>
-                    <span className="text-muted" style={{ fontSize: "0.75rem", alignSelf: "center" }}>Proglasi pobjednika:</span>
-                    <button className="btn btn-green btn-sm" onClick={() => resolveMatch(match.id, "A")}>Tim A Pobijedio</button>
-                    <button className="btn btn-green btn-sm" onClick={() => resolveMatch(match.id, "B")}>Tim B Pobijedio</button>
+                  <div className="resolve-section">
+                    <span className="resolve-label">Proglasi pobjednika:</span>
+                    <button className="btn btn-success btn-sm" onClick={() => resolveMatch(match.id, "A")}>Tim A</button>
+                    <button className="btn btn-success btn-sm" onClick={() => resolveMatch(match.id, "B")}>Tim B</button>
                   </div>
                 )}
 
-                {match.status === "finished" && (
-                  <div className="text-muted" style={{ marginTop: 8, fontSize: "0.85rem" }}>
-                    Pobijedio: <span className="text-gold">Tim {match.winner}</span>
-                    {myBet && <span style={{ marginLeft: 8 }}>— tvoj bet: Tim {myBet.side} {myBet.side === match.winner ? <span className="win-text">✓ DOBIO</span> : <span className="lose-text">✗ IZGUBIO</span>}</span>}
-                  </div>
-                )}
-
-                <div className="text-muted" style={{ marginTop: 8, fontSize: "0.75rem" }}>
-                  {bets.filter(b => b.matchId === match.id).length} klađenja • Ukupni fond: {bets.filter(b => b.matchId === match.id).reduce((s, b) => s + b.amount, 0).toLocaleString()} G
+                <div className="match-footer">
+                  <span className="match-footer-stat">{matchBets.length} klađenja</span>
+                  <span className="match-footer-stat">Fond: {pool.toLocaleString()} G</span>
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
-      {filtered.length === 0 && <div className="text-center text-muted" style={{ padding: "48px 0" }}>Nema mečeva za ovaj filter.</div>}
-      {showNewMatch && <NewMatchModal onClose={() => setShowNewMatch(false)} currentUser={currentUser} saveMatches={saveMatches} matches={matches} users={users} />}
+            );
+          })}
+        </div>
+      )}
+      {showNewMatch && <NewMatchModal onClose={() => setShowNewMatch(false)} saveMatches={saveMatches} matches={matches} users={users} />}
     </div>
   );
 }
 
-// ── New Match Modal ──────────────────────────────────────────────────────────
-function NewMatchModal({ onClose, currentUser, saveMatches, matches, users }) {
-  const [form, setForm] = useState({ title: "", type: "1v1", teamAPlayers: "", teamBPlayers: "" });
+// ── New Match Modal ───────────────────────────────────────────────────────────
+function NewMatchModal({ onClose, saveMatches, matches, users }) {
+  const [form, setForm] = useState({ title: "", type: "1v1", teamA: "", teamB: "" });
   const [err, setErr] = useState("");
 
   const sizeA = parseInt(form.type.split("v")[0]);
   const sizeB = parseInt(form.type.split("v")[1]);
 
-  const parsePlayers = (str, fallbackUser) => {
-    const names = str.split(",").map(s => s.trim()).filter(Boolean);
-    return names.map(name => {
-      const u = users[name];
-      return u ? { username: u.username, experience: u.experience || 0 } : { username: name, experience: 0 };
-    });
-  };
+  const parsePlayers = (str) => str.split(",").map(s => s.trim()).filter(Boolean).map(name => {
+    const u = users[name];
+    return u ? { username: u.username, experience: u.experience || 0 } : { username: name, experience: 0 };
+  });
 
-  const create = async () => {
-    if (!form.title) return setErr("Unesi naziv meča.");
-
-    const teamANames = form.teamAPlayers.split(",").map(s => s.trim()).filter(Boolean);
-    const teamBNames = form.teamBPlayers.split(",").map(s => s.trim()).filter(Boolean);
-
-    if (teamANames.length !== sizeA) return setErr(`Tim A treba točno ${sizeA} igrač(a) za format ${form.type}.`);
-    if (teamBNames.length !== sizeB) return setErr(`Tim B treba točno ${sizeB} igrač(a) za format ${form.type}.`);
-
-    const teamA = parsePlayers(form.teamAPlayers);
-    const teamB = parsePlayers(form.teamBPlayers);
-
-    const newMatch = {
-      id: `m${Date.now()}`, type: form.type, title: form.title,
-      status: "open", teamA, teamB,
-      winner: null, createdAt: Date.now(),
-    };
-    await saveMatches([newMatch, ...matches]);
+  const create = () => {
+    if (!form.title.trim()) return setErr("Unesi naziv meča.");
+    const pA = parsePlayers(form.teamA);
+    const pB = parsePlayers(form.teamB);
+    if (pA.length !== sizeA) return setErr(`Tim A treba ${sizeA} igrač(a) za format ${form.type}.`);
+    if (pB.length !== sizeB) return setErr(`Tim B treba ${sizeB} igrač(a) za format ${form.type}.`);
+    saveMatches([{ id: `m${Date.now()}`, type: form.type, title: form.title.trim(), status: "open", teamA: pA, teamB: pB, winner: null, createdAt: Date.now() }, ...matches]);
     onClose();
   };
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <button className="modal-close" onClick={onClose}>✕</button>
-        <h3>⚔ KREIRAJ NOVI MEČ</h3>
-        {err && <div className="alert alert-err">{err}</div>}
-        <div className="form-group">
-          <label>NAZIV MEČA</label>
-          <input className="form-control" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Npr. Bitka za Antioch..." />
+        <div className="modal-head">
+          <span className="modal-title">Novi meč</span>
+          <button className="modal-close" onClick={onClose}><IconX /></button>
         </div>
-        <div className="form-group">
-          <label>FORMAT</label>
-          <select className="form-control" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value, teamAPlayers: "", teamBPlayers: "" }))}>
-            {["1v1","2v2","1v2","1v3","2v3","3v3"].map(t => <option key={t}>{t}</option>)}
-          </select>
-        </div>
-        <div className="form-group">
-          <label>TIM A — {sizeA} igrač(a), odvojite zarezom</label>
-          <input className="form-control" value={form.teamAPlayers}
-            onChange={e => setForm(f => ({ ...f, teamAPlayers: e.target.value }))}
-            placeholder={sizeA === 1 ? "npr. Igrač1" : Array.from({length: sizeA}, (_,i) => `Igrač${i+1}`).join(", ")} />
-        </div>
-        <div className="form-group">
-          <label>TIM B — {sizeB} igrač(a), odvojite zarezom</label>
-          <input className="form-control" value={form.teamBPlayers}
-            onChange={e => setForm(f => ({ ...f, teamBPlayers: e.target.value }))}
-            placeholder={sizeB === 1 ? "npr. Igrač2" : Array.from({length: sizeB}, (_,i) => `Igrač${i+1}`).join(", ")} />
-        </div>
-        <p className="text-muted mb-16">Kvote se automatski računaju prema godinama iskustva igrača. Korisničko ime mora biti registrirano da bi iskustvo bio uzeto u obzir.</p>
-        <div className="flex gap-8">
-          <button className="btn btn-gold" onClick={create}>KREIRAJ MEČ</button>
-          <button className="btn btn-outline" onClick={onClose}>ODUSTANI</button>
+        <div className="modal-body">
+          {err && <div className="alert alert-err mb-16">{err}</div>}
+          <div className="form-group">
+            <label className="form-label">Naziv meča</label>
+            <input className="form-input" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Npr. Bitka za Antioch..." />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Format</label>
+            <select className="form-input" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value, teamA: "", teamB: "" }))}>
+              {["1v1", "2v2", "1v2", "1v3", "2v3", "3v3"].map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Tim A — {sizeA} igrač(a), odvoji zarezom</label>
+            <input className="form-input" value={form.teamA} onChange={e => setForm(f => ({ ...f, teamA: e.target.value }))}
+              placeholder={Array.from({ length: sizeA }, (_, i) => `Igrač${i + 1}`).join(", ")} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Tim B — {sizeB} igrač(a), odvoji zarezom</label>
+            <input className="form-input" value={form.teamB} onChange={e => setForm(f => ({ ...f, teamB: e.target.value }))}
+              placeholder={Array.from({ length: sizeB }, (_, i) => `Igrač${i + 1}`).join(", ")} />
+          </div>
+          <p className="modal-hint">Kvote se računaju automatski prema godinama iskustva. Ako je igrač registriran, iskustvo se uzima s profila.</p>
+          <div className="flex gap-8">
+            <button className="btn btn-primary" onClick={create}><IconPlus /> Kreiraj meč</button>
+            <button className="btn btn-ghost" onClick={onClose}>Odustani</button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-// ── Leaderboard ──────────────────────────────────────────────────────────────
+// ── Leaderboard ───────────────────────────────────────────────────────────────
 function LeaderboardTab({ users }) {
   const sorted = Object.values(users).sort((a, b) => b.coins - a.coins);
+  const rankColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
+
   return (
     <div>
-      <h2 className="section-title">LJESTVICA POBJEDNIKA</h2>
+      <div className="section-header"><h2 className="section-title">Ljestvica</h2></div>
       <div className="card">
         <div className="card-body">
-          {sorted.map((u, i) => (
-            <div key={u.username} className="history-row">
-              <div className="flex gap-16 align-center">
-                <span style={{ fontFamily: "'Cinzel', serif", color: i < 3 ? ["#ffd700","#c0c0c0","#cd7f32"][i] : "var(--text2)", width: 28 }}>#{i + 1}</span>
-                <div className="avatar" style={{ width: 36, height: 36, fontSize: "1rem" }}>{u.username[0].toUpperCase()}</div>
-                <div>
-                  <div style={{ fontFamily: "'Cinzel', serif", color: "var(--text)" }}>{u.username}</div>
-                  <div className="text-muted">{u.experience || 0} god. iskustva</div>
-                </div>
+          {sorted.length === 0 ? (
+            <div className="empty-state" style={{ padding: "40px 0" }}><p>Nema registriranih igrača.</p></div>
+          ) : sorted.map((u, i) => (
+            <div key={u.username} className="lb-row">
+              <div className="lb-rank" style={{ color: rankColors[i] || "var(--text3)" }}>#{i + 1}</div>
+              <div className="lb-avatar" style={{ borderColor: rankColors[i] || "var(--border)", color: rankColors[i] || "var(--text2)" }}>
+                {u.username[0].toUpperCase()}
               </div>
-              <div className="flex align-center gap-8">
-                <CoinIcon />
-                <span style={{ fontFamily: "'Cinzel', serif", color: "var(--gold2)", fontWeight: 700 }}>{u.coins?.toLocaleString()}</span>
+              <div className="lb-info">
+                <div className="lb-name">{u.username} {u.username === ADMIN_USERNAME && <span className="admin-badge">ADMIN</span>}</div>
+                <div className="lb-sub">{u.experience || 0} god. iskustva u AoE2</div>
               </div>
+              <div className="lb-coins"><IconCoin /> {u.coins?.toLocaleString()} G</div>
             </div>
           ))}
-          {sorted.length === 0 && <div className="text-center text-muted">Nema igrača još.</div>}
         </div>
       </div>
     </div>
   );
 }
 
-// ── Profile Tab ──────────────────────────────────────────────────────────────
+// ── Profile ───────────────────────────────────────────────────────────────────
 function ProfileTab({ currentUser, bets, matches, updateUser }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ experience: currentUser.experience || 0, bio: currentUser.bio || "" });
-  const [ok, setOk] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const myBets = bets.filter(b => b.username === currentUser.username);
-  const wonBets = myBets.filter(b => { const m = matches.find(m => m.id === b.matchId); return m && m.winner === b.side; });
-  const totalWon = wonBets.reduce((s, b) => { const m = matches.find(m => m.id === b.matchId); const { oddsA, oddsB } = calcOdds(m.teamA, m.teamB); return s + Math.floor(b.amount * (b.side === "A" ? oddsA : oddsB)); }, 0);
+  const wonBets = myBets.filter(b => { const m = matches.find(m => m.id === b.matchId); return m?.winner === b.side; });
 
-  const save = async () => {
-    await updateUser({ ...currentUser, experience: parseInt(form.experience) || 0, bio: form.bio });
-    setEditing(false); setOk(true); setTimeout(() => setOk(false), 2000);
+  const save = () => {
+    updateUser({ ...currentUser, experience: parseInt(form.experience) || 0, bio: form.bio });
+    setEditing(false); setSaved(true); setTimeout(() => setSaved(false), 2000);
   };
 
   return (
     <div>
-      <h2 className="section-title">MOJ PROFIL</h2>
-      <div className="card mb-24">
+      <div className="section-header"><h2 className="section-title">Moj profil</h2></div>
+      <div className="card mb-16">
         <div className="card-body">
-          <div className="profile-header">
-            <div className="avatar">{currentUser.username[0].toUpperCase()}</div>
+          <div className="profile-hero">
+            <div className="profile-avatar">{currentUser.username[0].toUpperCase()}</div>
             <div className="profile-info">
-              <h2>{currentUser.username}</h2>
-              <p>{currentUser.bio || "Bez opisa."}</p>
-              <p style={{ marginTop: 4 }}>{currentUser.experience || 0} godina iskustva u AoE2</p>
+              <div className="profile-name">{currentUser.username} {currentUser.username === ADMIN_USERNAME && <span className="admin-badge" style={{ verticalAlign: "middle" }}>ADMIN</span>}</div>
+              <div className="profile-bio">{currentUser.bio || "Bez opisa."}</div>
+              <div style={{ fontSize: "0.8rem", color: "var(--text3)", marginTop: 4 }}>{currentUser.experience || 0} god. iskustva · {myBets.length} klađenja</div>
             </div>
-            <button className="btn btn-outline btn-sm" style={{ marginLeft: "auto" }} onClick={() => setEditing(!editing)}>
-              {editing ? "ZATVORI" : "UREDI PROFIL"}
+            <button className="btn btn-ghost btn-sm" style={{ flexShrink: 0 }} onClick={() => setEditing(e => !e)}>
+              {editing ? "Zatvori" : "Uredi"}
             </button>
           </div>
-          {ok && <div className="alert alert-ok">✓ Profil ažuriran!</div>}
+          {saved && <div className="alert alert-ok">✓ Profil ažuriran!</div>}
           {editing && (
             <div>
+              <div className="divider" />
               <div className="form-group">
-                <label>GODINE ISKUSTVA</label>
-                <input className="form-control" type="number" min="0" max="30" value={form.experience} onChange={e => setForm(f => ({ ...f, experience: e.target.value }))} />
+                <label className="form-label">Godine iskustva u AoE2</label>
+                <input className="form-input" type="number" min="0" max="30" value={form.experience} onChange={e => setForm(f => ({ ...f, experience: e.target.value }))} />
               </div>
               <div className="form-group">
-                <label>BIO</label>
-                <textarea className="form-control" rows={3} value={form.bio} onChange={e => setForm(f => ({ ...f, bio: e.target.value }))} placeholder="Nešto o sebi..." style={{ resize: "vertical" }} />
+                <label className="form-label">Opis profila</label>
+                <textarea className="form-input" value={form.bio} onChange={e => setForm(f => ({ ...f, bio: e.target.value }))} placeholder="Nešto o sebi..." />
               </div>
-              <button className="btn btn-gold" onClick={save}>SPREMI PROMJENE</button>
+              <button className="btn btn-primary" onClick={save}>Spremi promjene</button>
             </div>
           )}
         </div>
       </div>
 
-      <div className="grid-3 mb-24">
-        <div className="stat-box">
-          <div className="stat-val"><CoinIcon />{currentUser.coins?.toLocaleString()}</div>
-          <div className="stat-label">GOLD BALANS</div>
+      <div className="stats-grid mb-16">
+        <div className="stat-card">
+          <div className="stat-val">{currentUser.coins?.toLocaleString()}</div>
+          <div className="stat-label">Gold</div>
         </div>
-        <div className="stat-box">
+        <div className="stat-card">
           <div className="stat-val">{myBets.length}</div>
-          <div className="stat-label">UKUPNO KLAĐENJA</div>
+          <div className="stat-label">Klađenja</div>
         </div>
-        <div className="stat-box">
-          <div className="stat-val win-text">{wonBets.length}</div>
-          <div className="stat-label">POBJEDE</div>
+        <div className="stat-card">
+          <div className="stat-val green">{wonBets.length}</div>
+          <div className="stat-label">Pobjede</div>
         </div>
       </div>
 
-      <h2 className="section-title">POVIJEST KLAĐENJA</h2>
+      <div className="section-header"><h2 className="section-title">Povijest klađenja</h2></div>
       <div className="card">
         <div className="card-body">
-          {myBets.length === 0 && <div className="text-muted text-center">Još nisi postavio nijedan bet.</div>}
-          {myBets.map(bet => {
+          {myBets.length === 0 ? (
+            <div className="empty-state" style={{ padding: "32px 0" }}><p>Još nisi postavio nijedan bet.</p></div>
+          ) : [...myBets].reverse().map(bet => {
             const match = matches.find(m => m.id === bet.matchId);
             if (!match) return null;
             const { oddsA, oddsB } = calcOdds(match.teamA, match.teamB);
             const odds = bet.side === "A" ? oddsA : oddsB;
-            const won = match.winner === bet.side;
             const finished = match.status === "finished";
+            const won = match.winner === bet.side;
             return (
-              <div key={bet.id} className="history-row">
+              <div key={bet.id} className="bet-row">
                 <div>
-                  <div style={{ fontFamily: "'Cinzel', serif", fontSize: "0.9rem" }}>{match.title}</div>
-                  <div className="text-muted">Tim {bet.side} • {odds}x kvota • {bet.amount} G</div>
+                  <div className="bet-match">{match.title}</div>
+                  <div className="bet-detail">Tim {bet.side} • {odds}x kvota • {bet.amount} G ulog</div>
                 </div>
-                <div>
+                <div className="bet-result">
                   {!finished && <span className="text-muted">U tijeku</span>}
-                  {finished && won && <span className="win-text">+{Math.floor(bet.amount * odds)} G ✓</span>}
-                  {finished && !won && <span className="lose-text">-{bet.amount} G ✗</span>}
+                  {finished && won && <span className="text-green">+{Math.floor(bet.amount * odds)} G ✓</span>}
+                  {finished && !won && <span className="text-red">-{bet.amount} G ✗</span>}
                 </div>
               </div>
             );

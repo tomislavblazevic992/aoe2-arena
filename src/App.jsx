@@ -511,7 +511,7 @@ export default function App(){
 
   const resolveMatch=async(matchId,winner)=>{
     const match=state.matches.find(m=>m.id===matchId);if(!match)return;
-    const{oddsA,oddsB}=calcLiveOdds(match.team_a,match.team_b,state.bets,matchId);
+    const{oddsA,oddsB}=calcOddsBase(match.team_a,match.team_b);
     const winOdds=winner==="A"?oddsA:oddsB;
     for(const bet of state.bets.filter(b=>b.match_id===matchId&&b.side===winner)){
       const user=state.users[bet.username];if(!user)continue;
@@ -743,7 +743,7 @@ function MatchesTab({state,cu,placeBet,resolveMatch,addComment,toggleReaction,is
       <div className="match-grid">
         {filtered.map((match,i)=>{
           const tA=match.team_a||[],tB=match.team_b||[];
-          const{oddsA,oddsB}=calcLiveOdds(tA,tB,state.bets,match.id);
+          const{oddsA,oddsB}=calcOddsBase(tA,tB);
           const bet=myBet(match.id);
           const mb=state.bets.filter(b=>b.match_id===match.id);
           const pool=mb.reduce((s,b)=>s+b.amount,0);
@@ -786,7 +786,7 @@ function MatchesTab({state,cu,placeBet,resolveMatch,addComment,toggleReaction,is
                     {msg[match.id]&&<div className={`alert ${msg[match.id].t==="ok"?"alert-ok":"alert-err"}`}>{msg[match.id].v}</div>}
                   </>
                 )}
-                {match.status==="finished"&&<div style={{fontSize:"0.78rem",color:"var(--text3)",marginTop:7,fontStyle:"italic"}}>Pobijedio: <span style={{color:"var(--green3)",fontStyle:"normal",fontFamily:"'Cinzel',serif"}}>Tim {match.winner}</span>{bet&&<span style={{marginLeft:7}}>• {bet.side===match.winner?<span className="text-green">✓ Dobio {Math.floor(bet.amount*(match.winner==="A"?calcLiveOdds(tA,tB,state.bets,match.id).oddsA:calcLiveOdds(tA,tB,state.bets,match.id).oddsB)).toLocaleString()} G</span>:<span className="text-red">✗ Izgubio {bet.amount} G</span>}</span>}</div>}
+                {match.status==="finished"&&<div style={{fontSize:"0.78rem",color:"var(--text3)",marginTop:7,fontStyle:"italic"}}>Pobijedio: <span style={{color:"var(--green3)",fontStyle:"normal",fontFamily:"'Cinzel',serif"}}>Tim {match.winner}</span>{bet&&<span style={{marginLeft:7}}>• {bet.side===match.winner?<span className="text-green">✓ Dobio {Math.floor(bet.amount*(match.winner==="A"?calcOddsBase(tA,tB).oddsA:calcOddsBase(tA,tB).oddsB)).toLocaleString()} G</span>:<span className="text-red">✗ Izgubio {bet.amount} G</span>}</span>}</div>}
               </div>
               {isAdmin&&match.status==="open"&&<div className="resolve-section"><span className="resolve-label">Pobjednik:</span><button className="btn btn-success btn-sm" onClick={()=>resolveMatch(match.id,"A")}>Tim A</button><button className="btn btn-success btn-sm" onClick={()=>resolveMatch(match.id,"B")}>Tim B</button></div>}
               <div className="comments-section">
@@ -1073,7 +1073,7 @@ function HallOfFameTab({state}){
   const wins=state.bets.map(bet=>{
     const m=state.matches.find(m=>m.id===bet.match_id);
     if(!m||m.status!=="finished"||m.winner!==bet.side)return null;
-    const{oddsA,oddsB}=calcLiveOdds(m.team_a||[],m.team_b||[],state.bets,m.id);
+    const{oddsA,oddsB}=calcOddsBase(m.team_a||[],m.team_b||[]);
     const odds=bet.side==="A"?oddsA:oddsB;
     return{...bet,matchTitle:m.title,odds,profit:Math.floor(bet.amount*odds)-bet.amount,payout:Math.floor(bet.amount*odds)};
   }).filter(Boolean).sort((a,b)=>b.payout-a.payout).slice(0,10);
@@ -1249,7 +1249,7 @@ function ProfileTab({state,cu,loadAll,refreshUser}){
   const fb=myBets.filter(b=>{const m=state.matches.find(m=>m.id===b.match_id);return m?.status==="finished";});
   const won=fb.filter(b=>{const m=state.matches.find(m=>m.id===b.match_id);return m?.winner===b.side;});
   const wr=fb.length>0?Math.round((won.length/fb.length)*100):0;
-  const bestWin=myBets.map(bet=>{const m=state.matches.find(m=>m.id===bet.match_id);if(!m||m.status!=="finished"||m.winner!==bet.side)return 0;const{oddsA,oddsB}=calcLiveOdds(m.team_a||[],m.team_b||[],state.bets,m.id);return Math.floor(bet.amount*(bet.side==="A"?oddsA:oddsB));}).reduce((a,b)=>Math.max(a,b),0);
+  const bestWin=myBets.map(bet=>{const m=state.matches.find(m=>m.id===bet.match_id);if(!m||m.status!=="finished"||m.winner!==bet.side)return 0;const{oddsA,oddsB}=calcOddsBase(m.team_a||[],m.team_b||[]);return Math.floor(bet.amount*(bet.side==="A"?oddsA:oddsB));}).reduce((a,b)=>Math.max(a,b),0);
   const myAch=state.achievements.filter(a=>a.username===cu.username).map(a=>a.achievement_key);
   const myCoinHistory=state.coinHistory.filter(h=>h.username===cu.username);
 
@@ -1325,7 +1325,7 @@ function ProfileTab({state,cu,loadAll,refreshUser}){
         {myBets.length===0?<div className="empty-state" style={{padding:"24px 0"}}><p>Još nisi kladio.</p></div>
           :[...myBets].reverse().map(bet=>{
             const m=state.matches.find(m=>m.id===bet.match_id);if(!m)return null;
-            const{oddsA,oddsB}=calcLiveOdds(m.team_a||[],m.team_b||[],state.bets,m.id);
+            const{oddsA,oddsB}=calcOddsBase(m.team_a||[],m.team_b||[]);
             const odds=bet.side==="A"?oddsA:oddsB,finished=m.status==="finished",w=m.winner===bet.side;
             return<div key={bet.id} className="bet-hist-row">
               <div><div className="bet-match">{m.title}{bet.is_all_in?" 🃏":""}</div><div className="bet-detail">Tim {bet.side} · {odds}x · {bet.amount.toLocaleString()} G</div></div>
